@@ -22,6 +22,8 @@ param(
     [switch]$LoadFunctionsOnly
 )
 
+$ErrorActionPreference = 'Stop'
+
 function Write-RunLog {
     param(
         [Parameter(Mandatory)][string]$Message,
@@ -148,10 +150,53 @@ function Remove-TargetGroupMemberships {
     return New-StepResult -Step $step -Status 'succeeded' -Message "Removed from $($removed.Count) group(s); skipped $($skipped.Count) dynamic." -Detail $detail
 }
 
-# --- Invoke-Offboarding orchestrator added in Task 10 ---
+function Invoke-Offboarding {
+    param(
+        [Parameter(Mandatory)][string]$TargetUpn,
+        [switch]$SkipConnect
+    )
+
+    if (-not $SkipConnect) {
+        Connect-MgGraph -Identity -NoWelcome
+        Write-RunLog -Message 'Connected to Microsoft Graph as the Automation Account managed identity.'
+    }
+
+    Write-RunLog -Message "Starting offboarding for $TargetUpn."
+    $user = Resolve-TargetUser -Upn $TargetUpn
+    if ($null -eq $user) {
+        Write-RunLog -Message "User $TargetUpn not found. No actions taken." -Level 'ERROR'
+        $summary = Get-RunSummary -TargetUpn $TargetUpn -Results @(
+            New-StepResult -Step 'resolve-user' -Status 'failed' -Message 'Target UPN does not exist in the tenant.'
+        )
+        Write-Output ($summary | ConvertTo-Json -Depth 6)
+        return $summary
+    }
+
+    $plan = [ordered]@{
+        'disable-account'          = { Disable-TargetAccount -User $user }
+        'revoke-sessions'          = { Revoke-TargetSessions -User $user }
+        'remove-licenses'          = { Remove-TargetLicenses -User $user }
+        'remove-group-memberships' = { Remove-TargetGroupMemberships -User $user }
+    }
+
+    $results = @()
+    foreach ($stepName in $plan.Keys) {
+        try {
+            $results += & $plan[$stepName]
+        }
+        catch {
+            Write-RunLog -Message "Step '$stepName' failed: $($_.Exception.Message)" -Level 'ERROR'
+            $results += New-StepResult -Step $stepName -Status 'failed' -Message $_.Exception.Message
+        }
+    }
+
+    $summary = Get-RunSummary -TargetUpn $TargetUpn -Results $results
+    Write-RunLog -Message ("Done. succeeded={0} failed={1} skipped={2} noop={3}" -f `
+            $summary.Counts.succeeded, $summary.Counts.failed, $summary.Counts.skipped, $summary.Counts.noop)
+    Write-Output ($summary | ConvertTo-Json -Depth 6)
+    return $summary
+}
 
 if (-not $LoadFunctionsOnly) {
-    $ErrorActionPreference = 'Stop'
-    Write-RunLog -Message "Runbook invoked for $TargetUpn. Orchestrator wiring is added in a later task."
-    # Body filled in Task 10.
+    Invoke-Offboarding -TargetUpn $TargetUpn | Out-Null
 }

@@ -159,3 +159,36 @@ Describe 'Get-RunSummary' {
         $s.Counts.succeeded | Should -Be 0
     }
 }
+
+Describe 'Invoke-Offboarding (orchestration)' {
+    BeforeEach {
+        Mock Connect-MgGraph {}
+        Mock Write-RunLog {}
+    }
+    It 'exits cleanly with no step attempts when the user does not exist' {
+        Mock Resolve-TargetUser { $null }
+        Mock Disable-TargetAccount {}
+        $s = Invoke-Offboarding -TargetUpn 'nope@contoso.com' -SkipConnect
+        Should -Invoke Disable-TargetAccount -Times 0
+        $s.Steps.Step | Should -Be 'resolve-user'
+        $s.OverallStatus | Should -Be 'completed_with_failures'
+    }
+    It 'runs all four steps and aggregates a mixed result' {
+        Mock Resolve-TargetUser { [pscustomobject]@{ Id = 'u-1'; UserPrincipalName = 'offboard-test-1@contoso.com'; AccountEnabled = $true } }
+        Mock Disable-TargetAccount        { New-StepResult -Step 'disable-account' -Status 'succeeded' -Message 'm' }
+        Mock Revoke-TargetSessions        { New-StepResult -Step 'revoke-sessions' -Status 'succeeded' -Message 'm' }
+        Mock Remove-TargetLicenses        { throw 'graph 500' }
+        Mock Remove-TargetGroupMemberships { New-StepResult -Step 'remove-group-memberships' -Status 'skipped' -Message 'm' }
+        $s = Invoke-Offboarding -TargetUpn 'offboard-test-1@contoso.com' -SkipConnect
+        $s.Counts.succeeded | Should -Be 2
+        $s.Counts.failed    | Should -Be 1
+        $s.Counts.skipped   | Should -Be 1
+        ($s.Steps | Where-Object Step -eq 'remove-licenses').Status | Should -Be 'failed'
+        $s.OverallStatus | Should -Be 'completed_with_failures'
+    }
+    It 'connects with -Identity when -SkipConnect is not passed' {
+        Mock Resolve-TargetUser { $null }
+        Invoke-Offboarding -TargetUpn 'x@contoso.com' | Out-Null
+        Should -Invoke Connect-MgGraph -Times 1 -ParameterFilter { $Identity -eq $true }
+    }
+}
