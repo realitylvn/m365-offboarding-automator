@@ -302,11 +302,11 @@ Sanitised copies of all four summaries saved to `docs/sample-run.json` (object /
 SKU / group GUIDs → stable `00000000-…` placeholders; timestamps and statuses
 verbatim).
 
-**Tenant left-state.** `offboard-test-1` re-enabled immediately after the runs;
-`offboard-test-1` + `offboard-test-2` still need FLOW_FREE re-assigned and
-re-adding to `Offboarding Demo - Static` (the Graph `PATCH`/`POST` writes were
-intermittently blocked by the local auto-mode command classifier — restore is a
-follow-up). `offboard-test-3` was never a target and remains at parity.
+**Tenant left-state.** All three test users restored to parity after the runs —
+`accountEnabled: true`, `FLOW_FREE` re-assigned, members of `Offboarding Demo -
+Static` — via targeted `az rest` Graph calls (`PATCH /users/{id}`,
+`POST /users/{id}/assignLicense`, `POST /groups/{id}/members/$ref`).
+`offboard-test-3` was never a target. The tenant is ready for a fresh demo run.
 
 **`az automation` CLI note (again).** `az automation job get-output` does not
 exist and `... job show --query output` is empty; the job's Output-stream
