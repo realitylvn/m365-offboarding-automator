@@ -63,7 +63,20 @@ function Get-RunSummary {
     }
 }
 
-# --- step functions added in Tasks 5-9 ---
+function Resolve-TargetUser {
+    param([Parameter(Mandatory)][string]$Upn)
+    try {
+        return Get-MgUser -UserId $Upn -Property 'id', 'userPrincipalName', 'accountEnabled' -ErrorAction Stop
+    }
+    catch {
+        if ($_.Exception.Message -match 'Request_ResourceNotFound|does not exist|ResourceNotFound|\bNotFound\b') {
+            return $null
+        }
+        throw
+    }
+}
+
+# --- step functions added in Tasks 6-9 ---
 # --- Invoke-Offboarding orchestrator added in Task 10 ---
 
 if (-not $LoadFunctionsOnly) {

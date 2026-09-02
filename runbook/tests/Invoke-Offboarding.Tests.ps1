@@ -27,6 +27,22 @@ Describe 'New-StepResult' {
     }
 }
 
+Describe 'Resolve-TargetUser' {
+    It 'returns the user object when Graph finds it' {
+        Mock Get-MgUser { [pscustomobject]@{ Id = 'u-1'; UserPrincipalName = 'offboard-test-1@contoso.com'; AccountEnabled = $true } }
+        $u = Resolve-TargetUser -Upn 'offboard-test-1@contoso.com'
+        $u.Id | Should -Be 'u-1'
+    }
+    It 'returns $null when Graph raises a not-found error' {
+        Mock Get-MgUser { throw [System.Exception]::new('[Request_ResourceNotFound] : Resource "nope@contoso.com" does not exist') }
+        Resolve-TargetUser -Upn 'nope@contoso.com' | Should -BeNullOrEmpty
+    }
+    It 're-throws a non-not-found error (e.g. throttling)' {
+        Mock Get-MgUser { throw [System.Exception]::new('[TooManyRequests] : throttled') }
+        { Resolve-TargetUser -Upn 'offboard-test-1@contoso.com' } | Should -Throw '*throttled*'
+    }
+}
+
 Describe 'Get-RunSummary' {
     It 'tallies each status and reports completed_with_failures when any step failed' {
         $results = @(
