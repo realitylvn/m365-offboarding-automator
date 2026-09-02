@@ -2,7 +2,7 @@ targetScope = 'subscription'
 
 @minLength(1)
 @maxLength(64)
-@description('Name of the azd environment; used for the resource group name and a short unique resource token.')
+@description('Name of the azd environment. Per the portfolio naming convention this is "<project-slug>-<env>" = "offboarding-dev", and it drives every resource name (rg-offboarding-dev, aa-offboarding-dev, log-offboarding-dev).')
 param environmentName string
 
 @minLength(1)
@@ -14,8 +14,16 @@ param location string
 @description('Retention in days for the Log Analytics workspace that stores runbook job logs.')
 param logRetentionDays int = 30
 
+// Portfolio-wide tagging standard (see azure-naming-conventions.md). Applied to
+// the resource group and passed explicitly to every resource in resources.bicep,
+// since Azure resources do not inherit resource-group tags without a policy.
+var projectSlug = 'offboarding'
+var environmentSlot = 'dev'
 var tags = {
   'azd-env-name': environmentName
+  portfolio: 'azure-devops-portfolio'
+  project: projectSlug
+  environment: environmentSlot
 }
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {

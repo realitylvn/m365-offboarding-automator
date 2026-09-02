@@ -1,13 +1,15 @@
 @description('Azure region for all resources.')
 param location string
-@description('azd environment name, used only to build the unique resource token.')
+@description('azd environment name ("offboarding-dev"); drives every resource name per azure-naming-conventions.md.')
 param environmentName string
 @description('Tags applied to every resource.')
 param tags object
 @description('Retention in days for the Log Analytics workspace that stores runbook job logs.')
 param logRetentionDays int
 
-var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
+// Resource names follow "<caf-abbreviation>-<environmentName>". None of the
+// resources here require a globally-unique name (no storage account, no Function
+// App), so no azd uniqueness token is appended - the human-readable name stands.
 var runbookName = 'Invoke-Offboarding'
 
 // Graph SDK sub-modules the runbook imports. Microsoft.Graph.Authentication is
@@ -20,7 +22,7 @@ var graphModules = [
 ]
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: 'log-${resourceToken}'
+  name: 'log-${environmentName}'
   location: location
   tags: tags
   properties: {
@@ -35,7 +37,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 }
 
 resource automation 'Microsoft.Automation/automationAccounts@2023-11-01' = {
-  name: 'aa-${resourceToken}'
+  name: 'aa-${environmentName}'
   location: location
   tags: tags
   identity: {
