@@ -5,12 +5,16 @@ BeforeAll {
 
 Describe 'Write-RunLog' {
     It 'prefixes an ISO-8601 UTC timestamp and the level' {
-        $line = Write-RunLog -Message 'hello' -Level 'WARN'
+        $line = (Write-RunLog -Message 'hello' -Level 'WARN' 6>&1).MessageData
         $line | Should -Match '^\[\d{4}-\d{2}-\d{2}T[\d:.]+(Z|\+00:00)\] WARN hello$'
     }
     It 'defaults the level to INFO' {
-        $line = Write-RunLog -Message 'plain'
+        $line = (Write-RunLog -Message 'plain' 6>&1).MessageData
         $line | Should -Match '\] INFO plain$'
+    }
+    It 'writes to the Information stream, never the pipeline' {
+        $out = Write-RunLog -Message 'x' 6>$null
+        $out | Should -BeNullOrEmpty
     }
 }
 

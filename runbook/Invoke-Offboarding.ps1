@@ -30,7 +30,9 @@ function Write-RunLog {
         [ValidateSet('INFO', 'WARN', 'ERROR')][string]$Level = 'INFO'
     )
     $ts = [DateTime]::UtcNow.ToString('o')
-    Write-Output ("[{0}] {1} {2}" -f $ts, $Level, $Message)
+    # Information stream, not Output: log lines must never land in the pipeline that
+    # feeds $results / the job's JSON output.
+    Write-Information ("[{0}] {1} {2}" -f $ts, $Level, $Message) -InformationAction Continue
 }
 
 function New-StepResult {
@@ -55,7 +57,9 @@ function Get-RunSummary {
         [Parameter(Mandatory)][AllowEmptyCollection()][pscustomobject[]]$Results
     )
     $counts = @{ succeeded = 0; failed = 0; skipped = 0; noop = 0 }
-    foreach ($r in $Results) { $counts[$r.Status]++ }
+    foreach ($r in $Results) {
+        if ($r.Status -and $counts.ContainsKey($r.Status)) { $counts[$r.Status]++ }
+    }
     [pscustomobject]@{
         TargetUpn       = $TargetUpn
         RunTimestampUtc = [DateTime]::UtcNow.ToString('o')
@@ -85,14 +89,14 @@ function Disable-TargetAccount {
         Write-RunLog -Message "Account $($User.UserPrincipalName) is already disabled." -Level 'INFO'
         return New-StepResult -Step $step -Status 'noop' -Message 'Account was already disabled.'
     }
-    Update-MgUser -UserId $User.Id -AccountEnabled:$false
+    Update-MgUser -UserId $User.Id -AccountEnabled:$false | Out-Null
     Write-RunLog -Message "Disabled account $($User.UserPrincipalName)."
     return New-StepResult -Step $step -Status 'succeeded' -Message 'Account disabled.' -Detail @{ userId = $User.Id }
 }
 
 function Revoke-TargetSessions {
     param([Parameter(Mandatory)][pscustomobject]$User)
-    Revoke-MgUserSignInSession -UserId $User.Id
+    Revoke-MgUserSignInSession -UserId $User.Id | Out-Null
     Write-RunLog -Message "Revoked all sign-in sessions for $($User.UserPrincipalName)."
     return New-StepResult -Step 'revoke-sessions' -Status 'succeeded' -Message 'All refresh tokens invalidated.' -Detail @{ userId = $User.Id }
 }
@@ -106,7 +110,7 @@ function Remove-TargetLicenses {
         return New-StepResult -Step $step -Status 'noop' -Message 'No licenses assigned.'
     }
     $skuIds = $details.SkuId
-    Set-MgUserLicense -UserId $User.Id -AddLicenses @() -RemoveLicenses @($skuIds)
+    Set-MgUserLicense -UserId $User.Id -AddLicenses @() -RemoveLicenses @($skuIds) | Out-Null
     Write-RunLog -Message ("Removed {0} license(s) from {1}: {2}" -f $skuIds.Count, $User.UserPrincipalName, ($details.SkuPartNumber -join ', '))
     return New-StepResult -Step $step -Status 'succeeded' -Message "Removed $($skuIds.Count) license assignment(s)." -Detail @{ removedSkus = @($skuIds) }
 }
@@ -130,7 +134,7 @@ function Remove-TargetGroupMemberships {
             continue
         }
         try {
-            Remove-MgGroupMemberByRef -GroupId $g.Id -DirectoryObjectId $User.Id
+            Remove-MgGroupMemberByRef -GroupId $g.Id -DirectoryObjectId $User.Id | Out-Null
             Write-RunLog -Message "Removed $($User.UserPrincipalName) from group '$($ap['displayName'])' ($($g.Id))."
             $removed.Add($g.Id)
         }
@@ -168,7 +172,6 @@ function Invoke-Offboarding {
         $summary = Get-RunSummary -TargetUpn $TargetUpn -Results @(
             New-StepResult -Step 'resolve-user' -Status 'failed' -Message 'Target UPN does not exist in the tenant.'
         )
-        Write-Output ($summary | ConvertTo-Json -Depth 6)
         return $summary
     }
 
@@ -193,10 +196,18 @@ function Invoke-Offboarding {
     $summary = Get-RunSummary -TargetUpn $TargetUpn -Results $results
     Write-RunLog -Message ("Done. succeeded={0} failed={1} skipped={2} noop={3}" -f `
             $summary.Counts.succeeded, $summary.Counts.failed, $summary.Counts.skipped, $summary.Counts.noop)
-    Write-Output ($summary | ConvertTo-Json -Depth 6)
     return $summary
 }
 
 if (-not $LoadFunctionsOnly) {
-    Invoke-Offboarding -TargetUpn $TargetUpn | Out-Null
+    # Explicit imports: auto-loading Microsoft.Graph sub-modules inside the Azure
+    # Automation sandbox is unreliable and floods the verbose stream.
+    Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
+    Import-Module Microsoft.Graph.Users -ErrorAction Stop
+    Import-Module Microsoft.Graph.Users.Actions -ErrorAction Stop
+    Import-Module Microsoft.Graph.Groups -ErrorAction Stop
+    Import-Module Microsoft.Graph.Identity.DirectoryManagement -ErrorAction Stop
+
+    $summary = Invoke-Offboarding -TargetUpn $TargetUpn
+    $summary | ConvertTo-Json -Depth 6
 }

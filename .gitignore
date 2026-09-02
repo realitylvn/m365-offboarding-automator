@@ -8,3 +8,6 @@
 # Pester output
 **/testResults.xml
 **/TestResults.xml
+
+# compiled Bicep (use `az bicep build --stdout`)
+infra/main.json

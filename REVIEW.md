@@ -218,6 +218,49 @@ didn't materialise on API version `2023-11-01`.
 
 Next: CHECKPOINT 2 — grant the MI (`<PRINCIPAL_ID>`) the three Graph app roles.
 
+### Stage 4 — first end-to-end runbook run (2026-09-02)
+
+First real job (`<JOB_ID>`, target `offboard-test-1@contoso.com`) reported
+**Failed** with `Index operation failed; the array index evaluated to null` and
+produced no output streams — but the tenant showed the account had already been
+**disabled, de-licensed, and removed from the static group**. The Graph steps all
+succeeded; the crash was in the run-summary aggregation.
+
+Two throwaway diagnostic runbooks (`diag-hello`, `diag-graph2`, since deleted)
+isolated it: the PowerShell 7.2 sandbox is healthy, and `Connect-MgGraph -Identity`
+returns a token carrying **exactly** `User.ReadWrite.All`, `GroupMember.ReadWrite.All`,
+`Organization.Read.All` — CHECKPOINT 2 has fully propagated.
+
+**Root cause — three defects:**
+
+1. `Write-RunLog` wrote log lines to the **success stream** (`Write-Output`). Every
+   step that did work leaked its log string into `$results`; `Get-RunSummary` then
+   evaluated `$counts[$r.Status]` where `$r.Status` on a string is `$null` →
+   `$counts[$null]` → the index error. Noop-only paths never hit it, so the unit
+   tests (which mock `Write-RunLog`) stayed green.
+2. The entrypoint piped `Invoke-Offboarding | Out-Null`, discarding the JSON
+   summary even on a clean run — the runbook could never emit job output.
+3. `logVerbose: true` plus reliance on Graph module **auto-loading** produced
+   ~5,000 module-import lines per job, stressing stream finalisation.
+
+**Fixes (this commit):**
+
+- `Write-RunLog` → **Information stream** (`Write-Information … -InformationAction Continue`);
+  the four mutating Graph calls piped to `Out-Null`; `Get-RunSummary` guards
+  `$counts.ContainsKey($r.Status)`.
+- Entrypoint explicitly `Import-Module`s the five Graph sub-modules and emits
+  `$summary | ConvertTo-Json -Depth 6` as job output.
+- `infra/resources.bicep`: runbook `logVerbose` / `logProgress` → `false`.
+- Pester 35/35 (one test added — `Write-RunLog` must not touch the pipeline),
+  PSScriptAnalyzer + `bicep build`/`lint` clean.
+
+Re-provisioned (`logVerbose` change) and re-published the runbook content;
+re-ran `scripts/create-test-users.ps1` to restore `offboard-test-1`.
+
+**Next (deferred to next session — usage cap): re-run the end-to-end test** —
+test-1 full offboard, test-2 full offboard, a missing UPN (clean fail), test-1
+again (idempotent all-noop) → capture `docs/sample-run.json`.
+
 ## AZ-900 / AZ-104 domain mapping
 
 - **Identity & access management**: system-assigned Managed Identity as a workload identity;

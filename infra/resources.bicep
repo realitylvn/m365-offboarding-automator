@@ -86,8 +86,11 @@ resource runbook 'Microsoft.Automation/automationAccounts/runbooks@2023-11-01' =
   tags: tags
   properties: {
     runbookType: 'PowerShell72'
-    logVerbose: true
-    logProgress: true
+    // Verbose logging floods the job stream with thousands of Graph SDK module-import
+    // lines and has been observed to break job-stream finalisation. The runbook logs
+    // its own progress to the Information stream instead.
+    logVerbose: false
+    logProgress: false
     description: 'On-demand M365 offboarding for a single target UPN. Content published out-of-band by scripts/publish-runbook.ps1.'
   }
 }
