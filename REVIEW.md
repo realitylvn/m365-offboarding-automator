@@ -92,6 +92,8 @@ command as it runs, so the reasoning doesn't get reconstructed from memory after
 | `az deployment sub what-if --location eastus2 --template-file infra/main.bicep --parameters environmentName=offboarding-dev location=eastus2` | CHECKPOINT 3 pre-flight — 10 resources to create, names/tags as expected. |
 | `azd provision --no-prompt` | CHECKPOINT 3 — first real provision. Deployment `offboarding-dev-1788325232` Succeeded: RG + Log Analytics + Automation Account + 5 Graph PS7.2 modules + published runbook + diagnostic setting. postprovision hook published the runbook. See *Stage 3* below. `azd`'s "reserved word MICROSOFT" pre-validation warning on the module resources is a false positive — deployment succeeded. |
 | `az rest --method get .../powerShell72Modules?api-version=2023-11-01` / `.../runbooks/Invoke-Offboarding/content` / `.../diagnosticSettings` | CHECKPOINT 3 verification — the `az automation` CLI group is experimental and thin (`get-content` doesn't exist, `az monitor diagnostic-settings list` rejects the nested Automation id), so ARM REST via `az rest` was used to confirm module import state, published runbook content, and diagnostic routing. |
+| `pwsh -File scripts/grant-managed-identity-graph-permissions.ps1 -AutomationAccountName aa-offboarding-dev -PrincipalId <PRINCIPAL_ID>` | CHECKPOINT 2 — granted the MI its 3 Graph application app-roles (`User.ReadWrite.All`, `GroupMember.ReadWrite.All`, `Organization.Read.All`) and no more. Global Admin session; consented the Graph CLI app to `Application.Read.All` + `AppRoleAssignment.ReadWrite.All`. See *Stage 2*. Needed `Microsoft.Graph.Applications` installed locally first. |
+| `az rest --method get https://graph.microsoft.com/v1.0/servicePrincipals/<PRINCIPAL_ID>/appRoleAssignments` | CHECKPOINT 2 verification — confirmed exactly 3 assignments to the Graph SP, no extras. |
 
 ## Checkpoint execution log
 
@@ -133,6 +135,47 @@ gates Conditional Access, PIM, and group-based licensing. Worth stating in the
 identity-governance section: "least privilege" and "premium-gated" are different
 axes, and a design that must run in a free/E-plan tenant can't assume rule-based
 groups exist.
+
+### Stage 2 — grant the MI its Graph app roles (CHECKPOINT 2, 2026-09-02)
+
+> Numbered "2" by checkpoint, but **run after Stage 3** — the grant target is the
+> Automation Account's managed identity, which doesn't exist until `azd provision`.
+
+Ran `pwsh -File scripts/grant-managed-identity-graph-permissions.ps1
+-AutomationAccountName aa-offboarding-dev -ResourceGroupName rg-offboarding-dev
+-PrincipalId <PRINCIPAL_ID>`. Interactive delegated sign-in
+consented the Microsoft Graph Command Line Tools app to `Application.Read.All` +
+`AppRoleAssignment.ReadWrite.All` (org-wide). Grant performed by a Global
+Administrator session.
+
+**Three application app-role assignments created on MI SP
+`<PRINCIPAL_ID>` → resource "Microsoft Graph"
+(`00000003-0000-0000-c000-000000000000`), and nothing else:**
+
+| Permission | appRoleId | assignment id | used by |
+|---|---|---|---|
+| `User.ReadWrite.All` | `741f803b-c850-494e-b5df-cde7c675a1ca` | `<APP_ROLE_ASSIGNMENT_ID>` | disable account, revoke sessions |
+| `GroupMember.ReadWrite.All` | `dbaae8cf-10b5-4b86-a4a1-f871c94c6695` | `<APP_ROLE_ASSIGNMENT_ID>` | remove manual group memberships |
+| `Organization.Read.All` | `498476ce-e0fe-48b0-b801-37ba7e2685c6` | `<APP_ROLE_ASSIGNMENT_ID>` | read tenant SKUs for the licence step |
+
+All three `createdDateTime` `2026-09-02T05:16:5x`. Verified with
+`GET /servicePrincipals/{id}/appRoleAssignments` — exactly 3, no extras. Script is
+idempotent (a re-run reported nothing to do on `-WhatIfOnly`).
+
+**Pre-req hit (again):** `Get-MgServicePrincipal` / `...AppRoleAssignment` live in
+`Microsoft.Graph.Applications`, which was missing locally like
+`Microsoft.Graph.Authentication` was at Stage 1. Installed at 2.32.0.
+
+**Role note.** `User.ReadWrite.All` and `GroupMember.ReadWrite.All` as *application*
+permissions are on Entra's privileged-permission list, so Application Administrator
+/ Cloud Application Administrator can't consent to them — the grant needs Global
+Administrator or Privileged Role Administrator. This is the single most privileged
+operation in the project: afterwards the MI can read/write every user and every
+group membership in the tenant, standing, with no runtime prompt. That's why the
+permission set is a hard ceiling of three and the grant is its own checkpoint.
+
+~10–20 min propagation before the runbook can use them (Task 13 Step 6 waits on
+this).
 
 ### Stage 3 — first `azd provision` (CHECKPOINT 3, 2026-09-02)
 
