@@ -79,6 +79,8 @@ command as it runs, so the reasoning doesn't get reconstructed from memory after
 | `azd env new offboarding-dev --subscription <SUBSCRIPTION_ID> --location eastus2` | Created the azd environment with the portfolio-convention name from the start (`<slug>-<env>`), with subscription and region set explicitly so no generic-named environment ever existed. |
 | `azd env get-values` | Confirmed `AZURE_ENV_NAME=offboarding-dev`, `AZURE_LOCATION=eastus2`, `AZURE_SUBSCRIPTION_ID` all set. |
 | `az deployment sub what-if --location eastus2 --template-file infra/main.bicep --parameters environmentName=offboarding-dev location=eastus2` | Pre-provision checkpoint: showed the 10 resources that would be created with `rg-/aa-/log-offboarding-dev` names and the four governance tags on every taggable resource. **Stopped here — `azd provision` not yet run.** |
+| `pwsh -File runbook/tests/Invoke-Pester.ps1` | Task 4 — ran the Pester 6.1.0 harness against the runbook scaffold (`Write-RunLog`, `New-StepResult`, `Get-RunSummary`): 6/6 pass, exit 0, `testResults.xml` (NUnit) written. |
+| `Invoke-ScriptAnalyzer -Path runbook/Invoke-Offboarding.ps1 -Settings ./PSScriptAnalyzerSettings.psd1` | Linted production runbook — clean. Added `PSScriptAnalyzerSettings.psd1` (excludes `PSUseShouldProcessForStateChangingFunctions`; the factories/Graph wrappers don't need a `-WhatIf` surface). `runbook/tests/` is excluded from lint — the `GraphStubs.ps1` doubles carry named-but-unused params on purpose, as the Mock `-ParameterFilter` contract. |
 
 ## AZ-900 / AZ-104 domain mapping
 
