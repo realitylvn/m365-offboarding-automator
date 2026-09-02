@@ -53,8 +53,8 @@ flowchart LR
     mi["System-assigned Managed Identity"]
   end
   rb -->|"Connect-MgGraph -Identity"| mi
-  mi -->|"3 Graph app roles"| graph[("Microsoft Graph")]
-  graph --> tenant["contoso.onmicrosoft.com tenant"]
+  mi -->|"3 Graph app roles"| msgraph[("Microsoft Graph")]
+  msgraph --> tenant["contoso.onmicrosoft.com tenant"]
   rb -->|"JobLogs / JobStreams"| law[("Log Analytics")]
 ```
 
