@@ -53,25 +53,19 @@ write-up. In short:
   'primaryBorderColor':'#5b6675',
   'lineColor':'#8b95a5',
   'textColor':'#e6e9ef',
-  'edgeLabelBackground':'#252d3a',
-  'clusterBkg':'#1a2230',
-  'clusterBorder':'#5b6675'
+  'edgeLabelBackground':'#252d3a'
 }}}%%
 flowchart LR
-  op(["Operator<br/>az automation runbook start"]) --> rb
-  subgraph AA["Automation Account · LVN subscription"]
-    rb["Invoke-Offboarding runbook"]
-    mi["System-assigned Managed Identity"]
-  end
-  rb -->|"Connect-MgGraph -Identity"| mi
-  mi -->|"3 Graph app roles"| msgraph["Microsoft Graph"]
-  msgraph --> tenant["contoso.onmicrosoft.com tenant"]
-  rb -->|"JobLogs / JobStreams"| law[("Log Analytics")]
+    op(["Operator<br/>az automation runbook start"]) --> rb["Invoke-Offboarding runbook<br/>Azure Automation · PowerShell 7.2"]
+    rb -->|"Connect-MgGraph -Identity"| mi["System-assigned<br/>Managed Identity"]
+    mi -->|"3 Graph app roles"| msgraph["Microsoft Graph"]
+    msgraph --> tenant["contoso.onmicrosoft.com tenant"]
+    rb -->|"JobLogs / JobStreams"| law[("Log Analytics<br/>workspace")]
 
-  classDef built fill:#1e3a5f,stroke:#5b8fd6,stroke-width:2px,color:#eaf2fb;
-  classDef ext fill:#252d3a,stroke:#5b6675,color:#e6e9ef;
-  class rb,mi,law built;
-  class op,msgraph,tenant ext;
+    classDef built fill:#1e3a5f,stroke:#5b8fd6,stroke-width:2px,color:#eaf2fb;
+    classDef ext fill:#252d3a,stroke:#5b6675,color:#e6e9ef;
+    class rb,mi built;
+    class op,msgraph,tenant,law ext;
 ```
 
 **Services used:** Azure Automation (PowerShell 7.2 runtime), Microsoft Graph

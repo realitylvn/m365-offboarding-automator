@@ -8,27 +8,19 @@
   'primaryBorderColor':'#5b6675',
   'lineColor':'#8b95a5',
   'textColor':'#e6e9ef',
-  'edgeLabelBackground':'#252d3a',
-  'clusterBkg':'#1a2230',
-  'clusterBorder':'#5b6675'
+  'edgeLabelBackground':'#252d3a'
 }}}%%
 flowchart LR
-  op(["Operator<br/>az automation runbook start<br/>TargetUpn=user@contoso.com"]) --> rb
+    op(["Operator<br/>az automation runbook start<br/>TargetUpn=user@contoso.com"]) --> rb["Invoke-Offboarding runbook<br/>Azure Automation · PowerShell 7.2"]
+    rb -->|"Connect-MgGraph -Identity"| mi["System-assigned<br/>Managed Identity"]
+    mi -->|"3 Graph application roles"| msgraph["Microsoft Graph"]
+    msgraph --> tenant["contoso.onmicrosoft.com tenant<br/>synthetic offboard-test-* users<br/>+ Offboarding Demo - Static group"]
+    rb -->|"JobLogs / JobStreams"| law[("Log Analytics<br/>log-offboarding-dev")]
 
-  subgraph AA["Automation Account · aa-offboarding-dev · LVN subscription"]
-    rb["Invoke-Offboarding<br/>PowerShell 7.2 runbook"]
-    mi["System-assigned<br/>Managed Identity"]
-  end
-
-  rb -->|"Connect-MgGraph -Identity"| mi
-  mi -->|"app roles: User.ReadWrite.All,<br/>GroupMember.ReadWrite.All,<br/>Organization.Read.All"| msgraph["Microsoft Graph"]
-  msgraph --> tenant["contoso.onmicrosoft.com tenant<br/>synthetic offboard-test-* users<br/>+ Offboarding Demo - Static group"]
-  rb -->|"JobLogs / JobStreams"| law[("Log Analytics<br/>log-offboarding-dev")]
-
-  classDef built fill:#1e3a5f,stroke:#5b8fd6,stroke-width:2px,color:#eaf2fb;
-  classDef ext fill:#252d3a,stroke:#5b6675,color:#e6e9ef;
-  class rb,mi,law built;
-  class op,msgraph,tenant ext;
+    classDef built fill:#1e3a5f,stroke:#5b8fd6,stroke-width:2px,color:#eaf2fb;
+    classDef ext fill:#252d3a,stroke:#5b6675,color:#e6e9ef;
+    class rb,mi built;
+    class op,msgraph,tenant,law ext;
 ```
 
 ## One tenant, not two
