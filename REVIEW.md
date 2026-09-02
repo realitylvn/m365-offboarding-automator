@@ -87,6 +87,49 @@ command as it runs, so the reasoning doesn't get reconstructed from memory after
 | `azd env get-values` | Re-confirmed `azure.yaml` still parses after adding the `postprovision` hook — `AZURE_ENV_NAME=offboarding-dev` etc. still resolve. |
 | `git push origin main` | Task 14 — pushed the 8 local-only commits (`6c84ef5`…`840c761`: runbook steps + orchestrator + setup scripts) that had been committed under the plan's authorisation but never pushed. Fast-forward, no PR — the code was already reviewed task-by-task. Done first so the CI PR would contain exactly one commit. |
 | `git checkout -b ci-setup` / `gh pr create` / `gh pr checks 1 --watch` / `gh pr merge 1 --squash --delete-branch` | Task 14 — added `.github/workflows/ci.yml` (jobs `lint-ps`, `test-ps`, `bicep`) on branch `ci-setup`, opened PR #1, watched all three checks pass on GitHub-hosted runners, squash-merged to `main` (`566d98e`). First CI wiring. The `lint-ps` job loops `Invoke-ScriptAnalyzer -Path` one file at a time — passing the target array directly throws `Cannot convert System.Object[] to String`. `pull_request` + `push: branches-ignore:[main]` both fire on a PR branch, so a PR gets two identical runs (accepted, not worth a guard). |
+| `Install-Module Microsoft.Graph.Authentication -RequiredVersion 2.32.0 -Scope CurrentUser` | CHECKPOINT 1 pre-req — the local box had every `Microsoft.Graph.*` sub-module at 2.32.0 *except* `Microsoft.Graph.Authentication` (the core module that supplies `Connect-MgGraph`), so the setup script failed with "term 'Connect-MgGraph' is not recognized" until it was installed. |
+| `pwsh -File scripts/create-test-users.ps1` | CHECKPOINT 1 — see *Checkpoint execution log → Stage 1* below. Interactive delegated sign-in (`User.ReadWrite.All`, `Group.ReadWrite.All`, `Organization.Read.All`). Partial success: 3 users + FLOW_FREE licenses + the static group created; the **dynamic group failed** (`400 NoLicenseForOperation` — dynamic membership needs Entra ID P1, which this tenant does not have). |
+
+## Checkpoint execution log
+
+### Stage 1 — synthetic test accounts + demo groups (CHECKPOINT 1, 2026-09-02)
+
+Ran `pwsh -File scripts/create-test-users.ps1` (defaults) against tenant
+`<TENANT_ID>` (contoso.onmicrosoft.com) as `user@contoso.com`.
+Delegated consent granted for `User.ReadWrite.All`, `Group.ReadWrite.All`,
+`Organization.Read.All`.
+
+**Created (idempotent, existence-guarded):**
+
+| Object | Id |
+|---|---|
+| User `offboard-test-1@contoso.com` ("Offboard Test 1") | `<PRINCIPAL_ID>` |
+| User `offboard-test-2@contoso.com` ("Offboard Test 2") | `<PRINCIPAL_ID>` |
+| User `offboard-test-3@contoso.com` ("Offboard Test 3") | `<PRINCIPAL_ID>` |
+| Group `Offboarding Demo - Static` (assigned security group; all 3 users are members) | `<GROUP_ID>` |
+| Licence `FLOW_FREE` (`f30db892-07e9-47e9-837c-80727f46fd3d`) | assigned to all 3 users (10000 units, 4 consumed) |
+
+**Failed:** `Offboarding Demo - Dynamic` — `New-MgGroup` returned
+`400 BadRequest / NoLicenseForOperation`. Dynamic-membership groups are an Entra ID
+P1 feature; the tenant's SKUs are `FLOW_FREE`, `CCIBOTS_PRIVPREV_VIRAL`,
+`O365_BUSINESS_ESSENTIALS` — no P1/P2.
+
+**Decision — dropped the dynamic demo group.** A 30-day P1 trial would let a live
+run demonstrate the skip, but it expires and leaves a broken group behind, which is
+the wrong trade for a portfolio piece that may be shown months later. The runbook's
+`Remove-TargetGroupMemberships` step already detects `groupTypes -contains
+'DynamicMembership'` (or a non-null `membershipRuleProcessingState`) and logs a
+`WARN` skip without attempting removal — this path is asserted by
+`runbook/tests/Invoke-Offboarding.Tests.ps1` ("removes static groups and skips
+dynamic ones"). `scripts/create-test-users.ps1`, its Pester tests, and the plan were
+updated to remove the dynamic group; `docs/architecture.md` will note the design
+(Task 16). CHECKPOINT 1 is complete with the static group only.
+
+**AZ-104 note.** Dynamic groups sit behind Entra ID P1 — the same premium tier that
+gates Conditional Access, PIM, and group-based licensing. Worth stating in the
+identity-governance section: "least privilege" and "premium-gated" are different
+axes, and a design that must run in a free/E-plan tenant can't assume rule-based
+groups exist.
 
 ## AZ-900 / AZ-104 domain mapping
 

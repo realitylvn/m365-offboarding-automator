@@ -4,9 +4,14 @@
 
 .DESCRIPTION
   Creates N disabled-password test users (obvious 'offboard-test-N@contoso.com'
-  naming, never real personnel), one static security group and one dynamic security
-  group, and assigns a free license SKU if one is available in the tenant. Every
-  write is guarded by an existence check, so the script is safe to re-run.
+  naming, never real personnel), one assigned (static) security group with all the
+  test users as members, and assigns a free license SKU if one is available in the
+  tenant. Every write is guarded by an existence check, so the script is safe to
+  re-run.
+
+  A dynamic (rule-based) demo group was intentionally left out: dynamic membership
+  is an Entra ID P1 feature the target tenant does not license. The runbook's
+  skip-dynamic-groups behaviour is exercised by the Pester suite instead.
 
   Run interactively by a directory admin. Delegated Graph consent is requested for
   exactly three scopes: User.ReadWrite.All, Group.ReadWrite.All, Organization.Read.All.
@@ -15,7 +20,7 @@
   Number of synthetic users to ensure exist. Default 3.
 
 .PARAMETER UpnPrefix
-  Local-part prefix for the synthetic UPNs and the dynamic group's membership rule.
+  Local-part prefix for the synthetic UPNs.
 
 .PARAMETER Domain
   Verified tenant domain for the synthetic UPNs.
@@ -26,9 +31,6 @@
 
 .PARAMETER StaticGroupName
   Display name of the assigned (static) demo group.
-
-.PARAMETER DynamicGroupName
-  Display name of the rule-based (dynamic) demo group. The runbook skips this one.
 
 .PARAMETER WhatIfOnly
   Print the plan (planned UPNs and groups) and exit without connecting or writing.
@@ -42,7 +44,6 @@ param(
     [string]$Domain = 'contoso.onmicrosoft.com',
     [string]$LicenseSkuPartNumber = 'FLOW_FREE',
     [string]$StaticGroupName = 'Offboarding Demo - Static',
-    [string]$DynamicGroupName = 'Offboarding Demo - Dynamic',
     [switch]$WhatIfOnly
 )
 
@@ -54,7 +55,6 @@ if ($WhatIfOnly) {
     $rows = @()
     $rows += $plannedUsers | ForEach-Object { [pscustomobject]@{ Action = 'ensure-user'; Target = $_ } }
     $rows += [pscustomobject]@{ Action = 'ensure-static-group'; Target = $StaticGroupName }
-    $rows += [pscustomobject]@{ Action = 'ensure-dynamic-group'; Target = $DynamicGroupName }
     $rows += [pscustomobject]@{ Action = 'assign-license-if-available'; Target = $LicenseSkuPartNumber }
     Write-Host "WhatIfOnly - no connection made, no changes written. Planned actions:"
     $rows
@@ -106,36 +106,26 @@ else {
     Write-Host "  SKU $LicenseSkuPartNumber not present in tenant - skipping license assignment."
 }
 
-function Get-OrNewGroup {
-    param(
-        [string]$DisplayName,
-        [string]$MailNickname,
-        [string[]]$GroupTypes,
-        [string]$MembershipRule
-    )
-    $found = Get-MgGroup -Filter "displayName eq '$DisplayName'" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($found) {
-        Write-Host "  group exists: $DisplayName"
-        return $found
-    }
-    Write-Host "  creating group: $DisplayName"
-    $params = @{
-        DisplayName     = $DisplayName
-        MailNickname    = $MailNickname
-        Description     = 'Synthetic offboarding-automator demo group.'
-        SecurityEnabled = $true
-        MailEnabled     = $false
-        GroupTypes      = $GroupTypes
-    }
-    if ($MembershipRule) {
-        $params.MembershipRule = $MembershipRule
-        $params.MembershipRuleProcessingState = 'On'
-    }
-    New-MgGroup @params
+# --- static demo group + membership ---
+# Assigned (not rule-based) security group: the runbook's group-removal step is
+# meant to strip exactly this kind of membership. A dynamic counterpart was
+# dropped from setup - dynamic membership needs Entra ID P1, which the target
+# tenant does not license; the runbook's skip-dynamic path stays covered by the
+# Pester suite (Invoke-Offboarding.Tests.ps1).
+$staticGroup = Get-MgGroup -Filter "displayName eq '$StaticGroupName'" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($staticGroup) {
+    Write-Host "  group exists: $StaticGroupName"
+}
+else {
+    Write-Host "  creating group: $StaticGroupName"
+    $staticGroup = New-MgGroup -DisplayName $StaticGroupName `
+        -MailNickname 'offboarding-demo-static' `
+        -Description 'Synthetic offboarding-automator demo group.' `
+        -SecurityEnabled:$true `
+        -MailEnabled:$false `
+        -GroupTypes @()
 }
 
-# --- static group + membership ---
-$staticGroup = Get-OrNewGroup -DisplayName $StaticGroupName -MailNickname 'offboarding-demo-static' -GroupTypes @()
 $currentMembers = @(Get-MgGroupMember -GroupId $staticGroup.Id -All | ForEach-Object { $_.Id })
 foreach ($u in $users) {
     if ($currentMembers -contains $u.Id) {
@@ -146,12 +136,7 @@ foreach ($u in $users) {
     New-MgGroupMember -GroupId $staticGroup.Id -DirectoryObjectId $u.Id
 }
 
-# --- dynamic group (rule-driven; no explicit membership writes) ---
-$dynamicGroup = Get-OrNewGroup -DisplayName $DynamicGroupName -MailNickname 'offboarding-demo-dynamic' `
-    -GroupTypes @('DynamicMembership') -MembershipRule "(user.userPrincipalName -startsWith `"$UpnPrefix`")"
-
 [pscustomobject]@{
-    Users          = $users | ForEach-Object { [pscustomobject]@{ Id = $_.Id; UserPrincipalName = $_.UserPrincipalName } }
-    StaticGroupId  = $staticGroup.Id
-    DynamicGroupId = $dynamicGroup.Id
+    Users         = $users | ForEach-Object { [pscustomobject]@{ Id = $_.Id; UserPrincipalName = $_.UserPrincipalName } }
+    StaticGroupId = $staticGroup.Id
 } | Format-List

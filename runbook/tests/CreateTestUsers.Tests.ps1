@@ -38,11 +38,11 @@ Describe 'create-test-users.ps1' {
                 ($Scopes.Count -eq 3)
             }
         }
-        It 'creates every missing user and both demo groups' {
+        It 'creates every missing user and the one assigned demo group' {
             & $script:ScriptPath -Count 2
             Should -Invoke New-MgUser -Times 2 -ParameterFilter { $UserPrincipalName -eq 'offboard-test-1@contoso.com' -or $UserPrincipalName -eq 'offboard-test-2@contoso.com' }
-            Should -Invoke New-MgGroup -Times 1 -ParameterFilter { $GroupTypes -notcontains 'DynamicMembership' }
-            Should -Invoke New-MgGroup -Times 1 -ParameterFilter { $GroupTypes -contains 'DynamicMembership' -and $MembershipRuleProcessingState -eq 'On' }
+            Should -Invoke New-MgGroup -Times 1
+            Should -Invoke New-MgGroup -Times 0 -ParameterFilter { $GroupTypes -contains 'DynamicMembership' }
         }
         It 'adds each created user to the static group' {
             & $script:ScriptPath -Count 2
