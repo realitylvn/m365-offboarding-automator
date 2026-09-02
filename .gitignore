@@ -1,6 +1,9 @@
 # azd local environment state
 .azure
 
+# build-methodology notes (spec, implementation plan) — kept local, not published
+docs/superpowers/
+
 # never commit a private key
 *.pfx
 *.pem
