@@ -18,3 +18,8 @@ function New-MgUser { param([string]$DisplayName, [string]$UserPrincipalName, [s
 function New-MgGroup { param([string]$DisplayName, [string]$MailNickname, [string]$Description, [bool]$SecurityEnabled, [bool]$MailEnabled, [string[]]$GroupTypes, [string]$MembershipRule, [string]$MembershipRuleProcessingState) }
 function New-MgGroupMember { param([string]$GroupId, [string]$DirectoryObjectId) }
 function Get-MgGroupMember { param([string]$GroupId, [switch]$All) }
+
+# --- service-principal cmdlets (scripts/grant-managed-identity-graph-permissions.ps1) ---
+function Get-MgServicePrincipal { param([string]$ServicePrincipalId, [string]$Filter, [switch]$All, [string[]]$Property) }
+function Get-MgServicePrincipalAppRoleAssignment { param([string]$ServicePrincipalId, [switch]$All) }
+function New-MgServicePrincipalAppRoleAssignment { param([string]$ServicePrincipalId, [string]$PrincipalId, [string]$ResourceId, [string]$AppRoleId) }
