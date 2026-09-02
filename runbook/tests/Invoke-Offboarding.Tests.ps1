@@ -43,6 +43,101 @@ Describe 'Resolve-TargetUser' {
     }
 }
 
+Describe 'Disable-TargetAccount' {
+    It 'disables an enabled account and returns succeeded' {
+        Mock Update-MgUser {}
+        $r = Disable-TargetAccount -User ([pscustomobject]@{ Id = 'u-1'; AccountEnabled = $true })
+        Should -Invoke Update-MgUser -Times 1 -ParameterFilter { $UserId -eq 'u-1' -and $AccountEnabled -eq $false }
+        $r.Step | Should -Be 'disable-account'
+        $r.Status | Should -Be 'succeeded'
+    }
+    It 'is a no-op when the account is already disabled' {
+        Mock Update-MgUser {}
+        $r = Disable-TargetAccount -User ([pscustomobject]@{ Id = 'u-1'; AccountEnabled = $false })
+        Should -Invoke Update-MgUser -Times 0
+        $r.Status | Should -Be 'noop'
+    }
+}
+
+Describe 'Revoke-TargetSessions' {
+    It 'calls revokeSignInSession for the user and returns succeeded' {
+        Mock Revoke-MgUserSignInSession {}
+        $r = Revoke-TargetSessions -User ([pscustomobject]@{ Id = 'u-1'; UserPrincipalName = 'offboard-test-1@contoso.com' })
+        Should -Invoke Revoke-MgUserSignInSession -Times 1 -ParameterFilter { $UserId -eq 'u-1' }
+        $r.Step | Should -Be 'revoke-sessions'
+        $r.Status | Should -Be 'succeeded'
+    }
+}
+
+Describe 'Remove-TargetLicenses' {
+    It 'removes every assigned SKU in one call' {
+        Mock Get-MgUserLicenseDetail {
+            @(
+                [pscustomobject]@{ SkuId = 'sku-a'; SkuPartNumber = 'FLOW_FREE' }
+                [pscustomobject]@{ SkuId = 'sku-b'; SkuPartNumber = 'POWER_BI_STANDARD' }
+            )
+        }
+        Mock Set-MgUserLicense {}
+        $r = Remove-TargetLicenses -User ([pscustomobject]@{ Id = 'u-1'; UserPrincipalName = 'offboard-test-1@contoso.com' })
+        Should -Invoke Set-MgUserLicense -Times 1 -ParameterFilter {
+            $UserId -eq 'u-1' -and $AddLicenses.Count -eq 0 -and
+            ($RemoveLicenses -contains 'sku-a') -and ($RemoveLicenses -contains 'sku-b')
+        }
+        $r.Status | Should -Be 'succeeded'
+        $r.Detail.removedSkus | Should -Contain 'sku-b'
+    }
+    It 'is a no-op when the user has no licenses' {
+        Mock Get-MgUserLicenseDetail { @() }
+        Mock Set-MgUserLicense {}
+        $r = Remove-TargetLicenses -User ([pscustomobject]@{ Id = 'u-1'; UserPrincipalName = 'x@contoso.com' })
+        Should -Invoke Set-MgUserLicense -Times 0
+        $r.Status | Should -Be 'noop'
+    }
+}
+
+Describe 'Remove-TargetGroupMemberships' {
+    BeforeEach {
+        $script:mkGroup = {
+            param($id, $name, $dynamic)
+            $ap = @{ '@odata.type' = '#microsoft.graph.group'; displayName = $name; groupTypes = @() }
+            if ($dynamic) { $ap.groupTypes = @('DynamicMembership'); $ap.membershipRuleProcessingState = 'On' }
+            [pscustomobject]@{ Id = $id; AdditionalProperties = $ap }
+        }
+    }
+    It 'removes static groups and skips dynamic ones' {
+        Mock Get-MgUserMemberOf {
+            @(
+                (& $script:mkGroup 'g-static-1' 'Sales'   $false),
+                (& $script:mkGroup 'g-dynamic-1' 'AllUsers' $true),
+                ([pscustomobject]@{ Id = 'role-1'; AdditionalProperties = @{ '@odata.type' = '#microsoft.graph.directoryRole' } })
+            )
+        }
+        Mock Remove-MgGroupMemberByRef {}
+        $r = Remove-TargetGroupMemberships -User ([pscustomobject]@{ Id = 'u-1'; UserPrincipalName = 'offboard-test-1@contoso.com' })
+        Should -Invoke Remove-MgGroupMemberByRef -Times 1 -ParameterFilter { $GroupId -eq 'g-static-1' -and $DirectoryObjectId -eq 'u-1' }
+        $r.Status | Should -Be 'succeeded'
+        $r.Detail.removed | Should -Contain 'g-static-1'
+        $r.Detail.skippedDynamic | Should -Contain 'g-dynamic-1'
+    }
+    It 'continues past a failing group removal and marks the step failed' {
+        Mock Get-MgUserMemberOf {
+            @( (& $script:mkGroup 'g-1' 'A' $false), (& $script:mkGroup 'g-2' 'B' $false) )
+        }
+        Mock Remove-MgGroupMemberByRef { if ($GroupId -eq 'g-1') { throw 'boom' } }
+        $r = Remove-TargetGroupMemberships -User ([pscustomobject]@{ Id = 'u-1'; UserPrincipalName = 'x@contoso.com' })
+        Should -Invoke Remove-MgGroupMemberByRef -Times 2
+        $r.Status | Should -Be 'failed'
+        $r.Detail.removed | Should -Contain 'g-2'
+        $r.Detail.failed  | Should -Contain 'g-1'
+    }
+    It 'is a no-op when the user is in no removable groups' {
+        Mock Get-MgUserMemberOf { @( (& $script:mkGroup 'g-dynamic-1' 'AllUsers' $true) ) }
+        Mock Remove-MgGroupMemberByRef {}
+        $r = Remove-TargetGroupMemberships -User ([pscustomobject]@{ Id = 'u-1'; UserPrincipalName = 'x@contoso.com' })
+        $r.Status | Should -Be 'skipped'
+    }
+}
+
 Describe 'Get-RunSummary' {
     It 'tallies each status and reports completed_with_failures when any step failed' {
         $results = @(

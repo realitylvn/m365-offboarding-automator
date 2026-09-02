@@ -76,7 +76,78 @@ function Resolve-TargetUser {
     }
 }
 
-# --- step functions added in Tasks 6-9 ---
+function Disable-TargetAccount {
+    param([Parameter(Mandatory)][pscustomobject]$User)
+    $step = 'disable-account'
+    if ($User.AccountEnabled -eq $false) {
+        Write-RunLog -Message "Account $($User.UserPrincipalName) is already disabled." -Level 'INFO'
+        return New-StepResult -Step $step -Status 'noop' -Message 'Account was already disabled.'
+    }
+    Update-MgUser -UserId $User.Id -AccountEnabled:$false
+    Write-RunLog -Message "Disabled account $($User.UserPrincipalName)."
+    return New-StepResult -Step $step -Status 'succeeded' -Message 'Account disabled.' -Detail @{ userId = $User.Id }
+}
+
+function Revoke-TargetSessions {
+    param([Parameter(Mandatory)][pscustomobject]$User)
+    Revoke-MgUserSignInSession -UserId $User.Id
+    Write-RunLog -Message "Revoked all sign-in sessions for $($User.UserPrincipalName)."
+    return New-StepResult -Step 'revoke-sessions' -Status 'succeeded' -Message 'All refresh tokens invalidated.' -Detail @{ userId = $User.Id }
+}
+
+function Remove-TargetLicenses {
+    param([Parameter(Mandatory)][pscustomobject]$User)
+    $step = 'remove-licenses'
+    $details = @(Get-MgUserLicenseDetail -UserId $User.Id -All)
+    if ($details.Count -eq 0) {
+        Write-RunLog -Message "$($User.UserPrincipalName) has no direct license assignments." -Level 'INFO'
+        return New-StepResult -Step $step -Status 'noop' -Message 'No licenses assigned.'
+    }
+    $skuIds = $details.SkuId
+    Set-MgUserLicense -UserId $User.Id -AddLicenses @() -RemoveLicenses @($skuIds)
+    Write-RunLog -Message ("Removed {0} license(s) from {1}: {2}" -f $skuIds.Count, $User.UserPrincipalName, ($details.SkuPartNumber -join ', '))
+    return New-StepResult -Step $step -Status 'succeeded' -Message "Removed $($skuIds.Count) license assignment(s)." -Detail @{ removedSkus = @($skuIds) }
+}
+
+function Remove-TargetGroupMemberships {
+    param([Parameter(Mandatory)][pscustomobject]$User)
+    $step = 'remove-group-memberships'
+    $removed = [System.Collections.Generic.List[string]]::new()
+    $skipped = [System.Collections.Generic.List[string]]::new()
+    $failed = [System.Collections.Generic.List[string]]::new()
+
+    $memberships = @(Get-MgUserMemberOf -UserId $User.Id -All)
+    $groups = $memberships | Where-Object { $_.AdditionalProperties['@odata.type'] -eq '#microsoft.graph.group' }
+
+    foreach ($g in $groups) {
+        $ap = $g.AdditionalProperties
+        $isDynamic = ($ap['groupTypes'] -contains 'DynamicMembership') -or ($null -ne $ap['membershipRuleProcessingState'])
+        if ($isDynamic) {
+            Write-RunLog -Message "Skipping dynamic group '$($ap['displayName'])' ($($g.Id)) - membership is rule-driven." -Level 'WARN'
+            $skipped.Add($g.Id)
+            continue
+        }
+        try {
+            Remove-MgGroupMemberByRef -GroupId $g.Id -DirectoryObjectId $User.Id
+            Write-RunLog -Message "Removed $($User.UserPrincipalName) from group '$($ap['displayName'])' ($($g.Id))."
+            $removed.Add($g.Id)
+        }
+        catch {
+            Write-RunLog -Message "Failed to remove from group '$($ap['displayName'])' ($($g.Id)): $($_.Exception.Message)" -Level 'ERROR'
+            $failed.Add($g.Id)
+        }
+    }
+
+    $detail = @{ removed = $removed.ToArray(); skippedDynamic = $skipped.ToArray(); failed = $failed.ToArray() }
+    if ($failed.Count -gt 0) {
+        return New-StepResult -Step $step -Status 'failed' -Message "Removed $($removed.Count), failed $($failed.Count), skipped $($skipped.Count) dynamic." -Detail $detail
+    }
+    if ($removed.Count -eq 0) {
+        return New-StepResult -Step $step -Status 'skipped' -Message "No manually-assigned groups to remove ($($skipped.Count) dynamic skipped)." -Detail $detail
+    }
+    return New-StepResult -Step $step -Status 'succeeded' -Message "Removed from $($removed.Count) group(s); skipped $($skipped.Count) dynamic." -Detail $detail
+}
+
 # --- Invoke-Offboarding orchestrator added in Task 10 ---
 
 if (-not $LoadFunctionsOnly) {
