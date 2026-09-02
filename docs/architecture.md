@@ -10,9 +10,11 @@ flowchart LR
   end
 
   rb -->|"Connect-MgGraph -Identity"| mi
-  mi -->|"app roles (direct assignment): User.ReadWrite.All, GroupMember.ReadWrite.All, Organization.Read.All"| msgraph[("Microsoft Graph")]
+  mi -->|"app roles (direct assignment): User.ReadWrite.All, GroupMember.ReadWrite.All, Organization.Read.All"| msgraph["Microsoft Graph"]
   msgraph --> tenant["contoso.onmicrosoft.com tenant<br/>synthetic offboard-test-* users<br/>+ Offboarding Demo - Static group"]
-  rb -->|"JobLogs / JobStreams"| law[("Log Analytics<br/>log-offboarding-dev")]
+  rb -->|"JobLogs / JobStreams"| law["Log Analytics<br/>log-offboarding-dev"]
+  classDef ext fill:#30363d,stroke:#8b949e,color:#e6edf3
+  class msgraph,tenant,law ext
 ```
 
 ## One tenant, not two

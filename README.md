@@ -53,9 +53,11 @@ flowchart LR
     mi["System-assigned Managed Identity"]
   end
   rb -->|"Connect-MgGraph -Identity"| mi
-  mi -->|"3 Graph app roles"| msgraph[("Microsoft Graph")]
+  mi -->|"3 Graph app roles"| msgraph["Microsoft Graph"]
   msgraph --> tenant["contoso.onmicrosoft.com tenant"]
-  rb -->|"JobLogs / JobStreams"| law[("Log Analytics")]
+  rb -->|"JobLogs / JobStreams"| law["Log Analytics"]
+  classDef ext fill:#30363d,stroke:#8b949e,color:#e6edf3
+  class msgraph,tenant,law ext
 ```
 
 **Services used:** Azure Automation (PowerShell 7.2 runtime), Microsoft Graph
