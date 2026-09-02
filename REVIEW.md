@@ -94,6 +94,10 @@ command as it runs, so the reasoning doesn't get reconstructed from memory after
 | `az rest --method get .../powerShell72Modules?api-version=2023-11-01` / `.../runbooks/Invoke-Offboarding/content` / `.../diagnosticSettings` | CHECKPOINT 3 verification — the `az automation` CLI group is experimental and thin (`get-content` doesn't exist, `az monitor diagnostic-settings list` rejects the nested Automation id), so ARM REST via `az rest` was used to confirm module import state, published runbook content, and diagnostic routing. |
 | `pwsh -File scripts/grant-managed-identity-graph-permissions.ps1 -AutomationAccountName aa-offboarding-dev -PrincipalId <PRINCIPAL_ID>` | CHECKPOINT 2 — granted the MI its 3 Graph application app-roles (`User.ReadWrite.All`, `GroupMember.ReadWrite.All`, `Organization.Read.All`) and no more. Global Admin session; consented the Graph CLI app to `Application.Read.All` + `AppRoleAssignment.ReadWrite.All`. See *Stage 2*. Needed `Microsoft.Graph.Applications` installed locally first. |
 | `az rest --method get https://graph.microsoft.com/v1.0/servicePrincipals/<PRINCIPAL_ID>/appRoleAssignments` | CHECKPOINT 2 verification — confirmed exactly 3 assignments to the Graph SP, no extras. |
+| `az automation runbook start -g rg-offboarding-dev --automation-account-name aa-offboarding-dev --name Invoke-Offboarding --parameters TargetUpn=…` ×4 | Task 13 Step 6 (attempt #2) — the four acceptance jobs (test-1, test-2, missing UPN, test-1 re-run). All `Completed`; see *Stage 5*. |
+| `az automation job show -g … --automation-account-name … --name <job> --query status` | Polled each job to a terminal state (`New`→`Activating`→`Running`→`Completed`, ~1–2 min each). |
+| `az rest --method get ".../jobs/<job>/streams?api-version=2023-11-01&$filter=properties/streamType eq 'Output'"` | Pulled each job's JSON summary from the Output stream (the `az automation job get-output` command doesn't exist; `job show` carries no output). Sanitised into `docs/sample-run.json`. |
+| `az rest --method patch https://graph.microsoft.com/v1.0/users/<PRINCIPAL_ID>  -b '{"accountEnabled":true}'` | Post-test — re-enabled `offboard-test-1`. Further restore writes (re-license, re-group `offboard-test-1`/`-2`) were intermittently blocked by the auto-mode classifier — pending. |
 
 ## Checkpoint execution log
 
@@ -265,6 +269,50 @@ have skipped the re-enable). All three test users are back at parity.
 **Next (deferred to next session — usage cap): re-run the end-to-end test** —
 test-1 full offboard, test-2 full offboard, a missing UPN (clean fail), test-1
 again (idempotent all-noop) → capture `docs/sample-run.json`.
+
+### Stage 5 — end-to-end acceptance test, attempt #2 (2026-09-02)
+
+Ran the four acceptance jobs against `aa-offboarding-dev` /
+`Invoke-Offboarding` with the Stage 4 fixes in place. **All four behaved exactly
+to spec** — the Automation job status is `Completed` for every run that the
+runbook handled cleanly, including the missing-UPN case (partial-completion
+tolerance means "user not found" is a *failed step*, not a *failed job*).
+
+| # | Job | `TargetUpn` | Job status | `OverallStatus` | Step outcomes |
+|---|---|---|---|---|---|
+| 1 | `<JOB_ID>` | `offboard-test-1@contoso.com` | Completed | `completed` | disable / revoke / remove-licenses / remove-group-memberships all **succeeded** |
+| 2 | `<JOB_ID>` | `offboard-test-2@contoso.com` | Completed | `completed` | all four **succeeded** |
+| 3 | `<JOB_ID>` | `offboard-test-does-not-exist@contoso.com` | Completed | `completed_with_failures` | `resolve-user` **failed**, zero step attempts |
+| 4 | `<JOB_ID>` | `offboard-test-1@contoso.com` (re-run) | Completed | `completed` | disable **noop**, revoke **succeeded**, remove-licenses **noop**, remove-group-memberships **skipped** |
+
+**What run 4 proves.** Re-running against an already-offboarded user is safe and
+near-inert: the two steps with an idempotency branch (`Disable-TargetAccount`,
+`Remove-TargetLicenses`) detect the end state and return `noop` with no Graph
+write; `Remove-TargetGroupMemberships` finds nothing removable and returns
+`skipped`; only `Revoke-TargetSessions` re-runs unconditionally (revoking already
+-revoked tokens is harmless). Counts `{ succeeded: 1, noop: 2, skipped: 1 }`.
+
+**Output plumbing confirmed.** Job output (Output stream) is a single
+`$summary | ConvertTo-Json -Depth 6` blob; the `[timestamp] LEVEL message` step
+logs land on the Information stream (visible under job "All Logs" / `JobStreams`
+in Log Analytics), not mixed into the return value — the Stage 4 fix for the
+`$counts[$null]` crash.
+
+Sanitised copies of all four summaries saved to `docs/sample-run.json` (object /
+SKU / group GUIDs → stable `00000000-…` placeholders; timestamps and statuses
+verbatim).
+
+**Tenant left-state.** `offboard-test-1` re-enabled immediately after the runs;
+`offboard-test-1` + `offboard-test-2` still need FLOW_FREE re-assigned and
+re-adding to `Offboarding Demo - Static` (the Graph `PATCH`/`POST` writes were
+intermittently blocked by the local auto-mode command classifier — restore is a
+follow-up). `offboard-test-3` was never a target and remains at parity.
+
+**`az automation` CLI note (again).** `az automation job get-output` does not
+exist and `... job show --query output` is empty; the job's Output-stream
+content is only reachable via ARM REST —
+`GET .../jobs/{id}/streams?api-version=2023-11-01&$filter=properties/streamType eq 'Output'`,
+then read `value[].properties.summary`.
 
 ## AZ-900 / AZ-104 domain mapping
 

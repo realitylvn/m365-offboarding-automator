@@ -1,0 +1,134 @@
+{
+  "_note": "Real job output from the Invoke-Offboarding runbook over the synthetic offboard-test-* accounts (Azure Automation, 2026-09-02). Object/SKU/group GUIDs replaced with stable placeholders; structure, timestamps, and step statuses are verbatim. The four runs below are the end-to-end acceptance test: two full offboards, one missing-UPN clean failure, and one idempotent re-run of an already-offboarded user.",
+  "_placeholders": {
+    "00000000-0000-0000-0000-0000000000e1": "offboard-test-1 objectId",
+    "00000000-0000-0000-0000-0000000000e2": "offboard-test-2 objectId",
+    "00000000-0000-0000-0000-0000000000f1": "FLOW_FREE skuId",
+    "00000000-0000-0000-0000-0000000000a1": "'Offboarding Demo - Static' groupId"
+  },
+  "runs": [
+    {
+      "TargetUpn": "offboard-test-1@contoso.com",
+      "RunTimestampUtc": "2026-09-02T15:23:40.7454248Z",
+      "Counts": { "succeeded": 4, "failed": 0, "skipped": 0, "noop": 0 },
+      "Steps": [
+        {
+          "Step": "disable-account",
+          "Status": "succeeded",
+          "Message": "Account disabled.",
+          "Detail": { "userId": "00000000-0000-0000-0000-0000000000e1" },
+          "TimestampUtc": "2026-09-02T15:23:39.7307724Z"
+        },
+        {
+          "Step": "revoke-sessions",
+          "Status": "succeeded",
+          "Message": "All refresh tokens invalidated.",
+          "Detail": { "userId": "00000000-0000-0000-0000-0000000000e1" },
+          "TimestampUtc": "2026-09-02T15:23:40.0849712Z"
+        },
+        {
+          "Step": "remove-licenses",
+          "Status": "succeeded",
+          "Message": "Removed 1 license assignment(s).",
+          "Detail": { "removedSkus": ["00000000-0000-0000-0000-0000000000f1"] },
+          "TimestampUtc": "2026-09-02T15:23:40.4281337Z"
+        },
+        {
+          "Step": "remove-group-memberships",
+          "Status": "succeeded",
+          "Message": "Removed from 1 group(s); skipped 0 dynamic.",
+          "Detail": { "removed": ["00000000-0000-0000-0000-0000000000a1"], "skippedDynamic": [], "failed": [] },
+          "TimestampUtc": "2026-09-02T15:23:40.7331305Z"
+        }
+      ],
+      "OverallStatus": "completed"
+    },
+    {
+      "TargetUpn": "offboard-test-2@contoso.com",
+      "RunTimestampUtc": "2026-09-02T15:25:12.4796715Z",
+      "Counts": { "succeeded": 4, "failed": 0, "skipped": 0, "noop": 0 },
+      "Steps": [
+        {
+          "Step": "disable-account",
+          "Status": "succeeded",
+          "Message": "Account disabled.",
+          "Detail": { "userId": "00000000-0000-0000-0000-0000000000e2" },
+          "TimestampUtc": "2026-09-02T15:25:11.1911470Z"
+        },
+        {
+          "Step": "revoke-sessions",
+          "Status": "succeeded",
+          "Message": "All refresh tokens invalidated.",
+          "Detail": { "userId": "00000000-0000-0000-0000-0000000000e2" },
+          "TimestampUtc": "2026-09-02T15:25:11.5575130Z"
+        },
+        {
+          "Step": "remove-licenses",
+          "Status": "succeeded",
+          "Message": "Removed 1 license assignment(s).",
+          "Detail": { "removedSkus": ["00000000-0000-0000-0000-0000000000f1"] },
+          "TimestampUtc": "2026-09-02T15:25:12.0578107Z"
+        },
+        {
+          "Step": "remove-group-memberships",
+          "Status": "succeeded",
+          "Message": "Removed from 1 group(s); skipped 0 dynamic.",
+          "Detail": { "removed": ["00000000-0000-0000-0000-0000000000a1"], "skippedDynamic": [], "failed": [] },
+          "TimestampUtc": "2026-09-02T15:25:12.4693719Z"
+        }
+      ],
+      "OverallStatus": "completed"
+    },
+    {
+      "TargetUpn": "offboard-test-does-not-exist@contoso.com",
+      "RunTimestampUtc": "2026-09-02T15:26:30.2651010Z",
+      "Counts": { "succeeded": 0, "failed": 1, "skipped": 0, "noop": 0 },
+      "Steps": [
+        {
+          "Step": "resolve-user",
+          "Status": "failed",
+          "Message": "Target UPN does not exist in the tenant.",
+          "Detail": null,
+          "TimestampUtc": "2026-09-02T15:26:30.2351540Z"
+        }
+      ],
+      "OverallStatus": "completed_with_failures"
+    },
+    {
+      "TargetUpn": "offboard-test-1@contoso.com",
+      "RunTimestampUtc": "2026-09-02T15:27:42.7393171Z",
+      "Counts": { "succeeded": 1, "failed": 0, "skipped": 1, "noop": 2 },
+      "Steps": [
+        {
+          "Step": "disable-account",
+          "Status": "noop",
+          "Message": "Account was already disabled.",
+          "Detail": null,
+          "TimestampUtc": "2026-09-02T15:27:42.0462493Z"
+        },
+        {
+          "Step": "revoke-sessions",
+          "Status": "succeeded",
+          "Message": "All refresh tokens invalidated.",
+          "Detail": { "userId": "00000000-0000-0000-0000-0000000000e1" },
+          "TimestampUtc": "2026-09-02T15:27:42.5225359Z"
+        },
+        {
+          "Step": "remove-licenses",
+          "Status": "noop",
+          "Message": "No licenses assigned.",
+          "Detail": null,
+          "TimestampUtc": "2026-09-02T15:27:42.6213041Z"
+        },
+        {
+          "Step": "remove-group-memberships",
+          "Status": "skipped",
+          "Message": "No manually-assigned groups to remove (0 dynamic skipped).",
+          "Detail": { "removed": [], "skippedDynamic": [], "failed": [] },
+          "TimestampUtc": "2026-09-02T15:27:42.7297510Z"
+        }
+      ],
+      "OverallStatus": "completed"
+    }
+  ]
+}
