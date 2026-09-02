@@ -6,6 +6,7 @@ BeforeAll {
 Describe 'create-test-users.ps1' {
     BeforeEach {
         Mock Connect-MgGraph {}
+        Mock Get-MgOrganization { [pscustomobject]@{ VerifiedDomains = @([pscustomobject]@{ Name = 'contoso.com'; IsDefault = $true }) } }
         Mock Get-MgUser {}
         Mock New-MgUser { [pscustomobject]@{ Id = "id-$UserPrincipalName"; UserPrincipalName = $UserPrincipalName } }
         Mock Get-MgSubscribedSku {}
@@ -20,11 +21,12 @@ Describe 'create-test-users.ps1' {
         It 'lists every planned UPN and makes no Graph calls at all' {
             $out = & $script:ScriptPath -Count 3 -WhatIfOnly
             Should -Invoke Connect-MgGraph -Times 0
+            Should -Invoke Get-MgOrganization -Times 0
             Should -Invoke New-MgUser -Times 0
             Should -Invoke New-MgGroup -Times 0
             Should -Invoke Set-MgUserLicense -Times 0
-            ($out | Out-String) | Should -Match 'offboard-test-1@realitylvn\.com'
-            ($out | Out-String) | Should -Match 'offboard-test-3@realitylvn\.com'
+            ($out | Out-String) | Should -Match 'offboard-test-1@<tenant-primary-domain>'
+            ($out | Out-String) | Should -Match 'offboard-test-3@<tenant-primary-domain>'
         }
     }
 

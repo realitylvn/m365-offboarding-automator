@@ -29,8 +29,8 @@ The original spec assumed a cross-tenant setup: a Microsoft 365 Developer Progra
 tenant holding the identities to offboard, and the LVN Azure subscription holding
 the compute — which would have needed an app registration with a certificate
 credential to bridge them. `az account show` settled it: the LVN Azure
-subscription's home tenant (`<TENANT_ID>`) **is** the
-contoso.onmicrosoft.com Microsoft 365 tenant. One tenant, one subscription, no bridge
+subscription's home tenant (`<TENANT_ID>`) **is** the same
+Microsoft 365 tenant. One tenant, one subscription, no bridge
 needed. (The free M365 Developer Program sandbox is also gated to Visual Studio
 subscribers now and wasn't available anyway.)
 

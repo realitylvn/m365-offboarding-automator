@@ -10,7 +10,7 @@ command as it runs, so the reasoning doesn't get reconstructed from memory after
   The original spec assumed two tenants (an M365 Developer Program tenant for the identity
   target, the LVN Azure subscription for compute) and therefore a cross-tenant app
   registration with a certificate credential. `az account show` confirmed the LVN Azure
-  subscription's home tenant (`<TENANT_ID>`) *is* the contoso.onmicrosoft.com
+  subscription's home tenant (`<TENANT_ID>`) *is* the same
   M365 tenant — one tenant, one subscription. That collapses the design: the Automation
   Account's own system-assigned Managed Identity is granted the three Graph *application*
   permissions it needs (`User.ReadWrite.All`, `GroupMember.ReadWrite.All`,
@@ -172,7 +172,7 @@ automation.
 ### Stage 1 — synthetic test accounts + demo groups (CHECKPOINT 1, 2026-09-02)
 
 Ran `pwsh -File scripts/create-test-users.ps1` (defaults) against tenant
-`<TENANT_ID>` (contoso.onmicrosoft.com) as `user@contoso.com`.
+`<TENANT_ID>` as `user@contoso.com`.
 Delegated consent granted for `User.ReadWrite.All`, `Group.ReadWrite.All`,
 `Organization.Read.All`.
 
@@ -374,7 +374,9 @@ verbatim).
 `accountEnabled: true`, `FLOW_FREE` re-assigned, members of `Offboarding Demo -
 Static` — via targeted `az rest` Graph calls (`PATCH /users/{id}`,
 `POST /users/{id}/assignLicense`, `POST /groups/{id}/members/$ref`).
-`offboard-test-3` was never a target. The tenant is ready for a fresh demo run.
+`offboard-test-3` was never a target. (The synthetic users and demo group were
+later deleted from the tenant — see *Stage 7*; a fresh demo re-creates them with
+`scripts/create-test-users.ps1`.)
 
 **`az automation` CLI note (again).** `az automation job get-output` does not
 exist and `... job show --query output` is empty; the job's Output-stream
@@ -408,7 +410,8 @@ calling them.
 **Re-arming for a demo.** `scripts/grant-managed-identity-graph-permissions.ps1`
 is idempotent and re-grants all three in one run (Global Administrator session,
 ~10–20 min propagation before `Connect-MgGraph -Identity` sees them). So the
-operating cycle is: re-arm → demo → revoke. `rg-offboarding-dev` itself
+operating cycle is: re-create test users → re-arm grant → demo → revoke grant.
+`rg-offboarding-dev` itself
 (Automation Account, Log Analytics, runbook, diagnostic setting) stays
 provisioned — it costs nothing on the Free SKU and re-provisioning is a single
 `azd provision`.
@@ -417,6 +420,39 @@ provisioned — it costs nothing on the Free SKU and re-provisioning is a single
 stand up a subscription-scoped, public-repo-federated deploy identity for a tool
 one person hand-deploys): privilege is granted for a task and removed when the
 task isn't running, not held "just in case."
+
+### Stage 7 — identifier hygiene + synthetic-object teardown (2026-09-02)
+
+A security pass over the repo found real tenant identifiers in `REVIEW.md` and
+`docs/architecture.md`: the tenant ID, subscription ID, the managed-identity
+service-principal object ID and app ID, the three synthetic user object IDs, the
+demo group object ID, and (in the command log) Automation job GUIDs. None is a
+credential, but tenant/subscription/object IDs and a real tenant domain do not
+belong in a public repo — a corporate security team would open an incident.
+
+**Remediation:**
+
+- All of the above replaced with the portfolio placeholder vocabulary
+  (`<TENANT_ID>`, `<SUBSCRIPTION_ID>`, `<PRINCIPAL_ID>`, `<CLIENT_ID>`,
+  `<GROUP_ID>`, `<APP_ROLE_ASSIGNMENT_ID>`, `<JOB_ID>`) — see
+  `azure-naming-conventions.md` → *Documentation placeholders*. Microsoft global
+  constants (the Graph app ID `00000003-…`, the three Graph app-role IDs, the
+  `FLOW_FREE` SKU ID) are identical in every tenant and were kept.
+- Real UPNs / domain (`offboard-test-N@<real-domain>`) genericised to
+  `offboard-test-N@contoso.com`; `scripts/create-test-users.ps1` no longer carries
+  a hardcoded `-Domain` default — it resolves the tenant's primary verified domain
+  at runtime from `Get-MgOrganization`.
+- History rewritten (all commits) and force-pushed; the GitHub repo was deleted
+  and recreated from the clean tree so no pre-rewrite commit survives.
+- The three synthetic users and the demo group were **deleted from the tenant**
+  (`DELETE /users/{id}`, `DELETE /groups/{id}`). They were throwaway stand-ins;
+  keeping demo scaffolding in a real tenant is the same dormant-footprint smell as
+  a standing Graph grant (*Stage 6*). `scripts/create-test-users.ps1` re-creates
+  them on demand for the next run.
+
+**Pre-commit scan** (`azure-naming-conventions.md` → *Documentation placeholders*)
+is clean: no GUIDs, `/subscriptions/…` paths, or `*.onmicrosoft.com` outside the
+documented placeholders.
 
 ## AZ-900 / AZ-104 domain mapping
 

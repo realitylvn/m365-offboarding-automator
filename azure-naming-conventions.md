@@ -59,3 +59,28 @@ Purpose: the Ops Dashboard project can later query across all resource groups by
 ## Storage account naming caveat
 
 Storage account names are lowercase alphanumeric only, 3–24 characters, globally unique, no hyphens. The project slug gets concatenated without separators (`stcostsentineldev`) before azd's uniqueness token is appended — verify the combined length stays under 24 characters before the token, since long slugs (`nsg-scanner` → `stnsgscannerdev` is fine, but watch this on any future project with a longer name).
+
+## Documentation placeholders
+
+Real tenant / subscription / object IDs, the real tenant domain, and real emails never get committed — assume every repo is or will become public. In every tracked file (README, `docs/architecture.md`, `REVIEW.md`, Bicep and `*.parameters.json`, embedded screenshots) the value written is the placeholder, never the real one.
+
+| Real value | Placeholder | Example |
+|---|---|---|
+| Tenant ID | `<TENANT_ID>` | `aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb` |
+| Subscription ID | `<SUBSCRIPTION_ID>` | `11111111-0000-2222-3333-444444444444` |
+| Principal / object ID (managed identity, SP, user) | `<PRINCIPAL_ID>` | — |
+| App / client ID | `<CLIENT_ID>` | — |
+| Resource ID path | `/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RG_NAME>/...` | — |
+| Tenant domain | `contoso.onmicrosoft.com` | — |
+| Owner / user email, UPN | `user@contoso.com` | `offboard-test-1@contoso.com` |
+| Billing account / enrollment ID | `<BILLING_ACCOUNT_ID>` | — |
+
+Resource *names* built from the pattern above (`func-<slug>-dev`) carry no secret and may be shown as-is. GUIDs, resource-ID paths, the real tenant domain, and real emails are not. Redact the azd uniqueness token only where it sits next to a subscription ID.
+
+**Pre-commit scan** — run in the project root before every commit and push; every hit that is not an obvious placeholder is a finding:
+
+```
+git grep -nIE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|/subscriptions/[0-9a-fA-F-]{36}|[a-z0-9-]+\.onmicrosoft\.com'
+```
+
+Redacting in a new commit does not remove an ID already in an earlier commit — rewrite history (`git filter-repo`) before the repo goes public. Object IDs and tenant/subscription IDs are identifiers, not secrets to rotate; treat any leaked client secret, SAS token, or connection string as compromised and rotate it.

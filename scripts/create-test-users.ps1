@@ -3,7 +3,7 @@
   One-time, idempotent creation of synthetic offboarding test accounts and demo groups.
 
 .DESCRIPTION
-  Creates N disabled-password test users (obvious 'offboard-test-N@contoso.com'
+  Creates N disabled-password test users (obvious 'offboard-test-N@<domain>'
   naming, never real personnel), one assigned (static) security group with all the
   test users as members, and assigns a free license SKU if one is available in the
   tenant. Every write is guarded by an existence check, so the script is safe to
@@ -23,7 +23,9 @@
   Local-part prefix for the synthetic UPNs.
 
 .PARAMETER Domain
-  Verified tenant domain for the synthetic UPNs.
+  Verified tenant domain for the synthetic UPNs. Optional - defaults to the
+  tenant's primary verified domain, resolved at runtime from Get-MgOrganization
+  (no domain is hardcoded in this script).
 
 .PARAMETER LicenseSkuPartNumber
   SkuPartNumber to assign to each test user when the tenant has a spare unit. FLOW_FREE
@@ -41,7 +43,7 @@
 param(
     [int]$Count = 3,
     [string]$UpnPrefix = 'offboard-test',
-    [string]$Domain = 'contoso.onmicrosoft.com',
+    [string]$Domain,
     [string]$LicenseSkuPartNumber = 'FLOW_FREE',
     [string]$StaticGroupName = 'Offboarding Demo - Static',
     [switch]$WhatIfOnly
@@ -49,11 +51,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$plannedUsers = 1..$Count | ForEach-Object { "$UpnPrefix-$_@$Domain" }
-
 if ($WhatIfOnly) {
+    $domainForPlan = if ($Domain) { $Domain } else { '<tenant-primary-domain>' }
     $rows = @()
-    $rows += $plannedUsers | ForEach-Object { [pscustomobject]@{ Action = 'ensure-user'; Target = $_ } }
+    $rows += 1..$Count | ForEach-Object { [pscustomobject]@{ Action = 'ensure-user'; Target = "$UpnPrefix-$_@$domainForPlan" } }
     $rows += [pscustomobject]@{ Action = 'ensure-static-group'; Target = $StaticGroupName }
     $rows += [pscustomobject]@{ Action = 'assign-license-if-available'; Target = $LicenseSkuPartNumber }
     Write-Host "WhatIfOnly - no connection made, no changes written. Planned actions:"
@@ -69,6 +70,14 @@ function New-RandomPassword {
 
 Connect-MgGraph -Scopes 'User.ReadWrite.All', 'Group.ReadWrite.All', 'Organization.Read.All' | Out-Null
 Write-Host "Connected to Microsoft Graph."
+
+if (-not $Domain) {
+    # Resolve the tenant's primary verified domain rather than carrying one in
+    # source. Uses the already-granted Organization.Read.All scope.
+    $Domain = ((Get-MgOrganization).VerifiedDomains | Where-Object { $_.IsDefault }).Name
+    if (-not $Domain) { throw "Could not resolve the tenant's primary verified domain - pass -Domain explicitly." }
+    Write-Host "Using tenant primary domain: $Domain"
+}
 
 # --- users ---
 $users = foreach ($i in 1..$Count) {

@@ -14,6 +14,7 @@ function Remove-MgGroupMemberByRef { param([string]$GroupId, [string]$DirectoryO
 function Get-MgSubscribedSku { param([switch]$All) }
 
 # --- setup-script cmdlets (scripts/create-test-users.ps1) ---
+function Get-MgOrganization { }
 function New-MgUser { param([string]$DisplayName, [string]$UserPrincipalName, [string]$MailNickname, [bool]$AccountEnabled, [hashtable]$PasswordProfile, [string]$UsageLocation) }
 function New-MgGroup { param([string]$DisplayName, [string]$MailNickname, [string]$Description, [bool]$SecurityEnabled, [bool]$MailEnabled, [string[]]$GroupTypes, [string]$MembershipRule, [string]$MembershipRuleProcessingState) }
 function New-MgGroupMember { param([string]$GroupId, [string]$DirectoryObjectId) }

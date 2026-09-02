@@ -78,8 +78,8 @@ certificate, no secret anywhere.
 
 ## Environment
 
-Built and tested against the **real contoso.onmicrosoft.com Microsoft 365 tenant** with
-synthetic test users (`offboard-test-1..3@contoso.com`) created by
+Built and tested against a **real Microsoft 365 tenant** with synthetic test
+users (`offboard-test-1..3@contoso.com`) created by
 `scripts/create-test-users.ps1`. The tenant, the Graph calls, and the permission
 changes are all real — the accounts are purpose-built stand-ins, never real
 personnel. Every user, group, and SKU id in this repo's fixtures and
