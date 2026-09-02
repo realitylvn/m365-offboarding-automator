@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-ps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Force
+          # Production PowerShell only. runbook/tests/ is excluded on purpose:
+          # the GraphStubs.ps1 doubles carry named-but-unused params as the
+          # Mock -ParameterFilter contract.
+          $targets = @('runbook/Invoke-Offboarding.ps1') +
+            (Get-ChildItem scripts -Filter *.ps1 -ErrorAction Ignore).FullName
+          # Invoke-ScriptAnalyzer -Path takes a single string; an array throws
+          # "Cannot convert System.Object[] to String" - so lint one file at a time.
+          $findings = foreach ($t in $targets) {
+            Invoke-ScriptAnalyzer -Path $t -Settings ./PSScriptAnalyzerSettings.psd1
+          }
+          $findings | Format-Table -AutoSize
+          if ($findings) { throw "$($findings.Count) PSScriptAnalyzer finding(s)" }
+
+  test-ps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.5.0 -Force
+          ./runbook/tests/Invoke-Pester.ps1
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-results
+          path: runbook/tests/testResults.xml
+
+  bicep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-azd@v2
+      - name: bicep build + lint
+        shell: bash
+        run: |
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+          az bicep lint --file infra/main.bicep
