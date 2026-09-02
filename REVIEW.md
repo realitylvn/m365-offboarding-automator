@@ -38,6 +38,73 @@ command as it runs, so the reasoning doesn't get reconstructed from memory after
   `Authentication` first because the others depend on it. Importing the full `Microsoft.Graph`
   meta-module pulls ~40 packages and is slow and failure-prone in Automation.
 
+### CI: PR gate now, OIDC deploy pipeline deferred (CHECKPOINT 4, 2026-09-02)
+
+`.github/workflows/ci.yml` (Task 14, PR #1) runs `lint-ps` + `test-ps` + `bicep`
+on every PR and non-`main` push — that's the quality gate. The **deploy**
+pipeline — `.github/workflows/deploy.yml`, a federated OIDC identity trusting this
+repo, and `azd provision` on push to `main` — is **deferred**, matching the same
+call in `azure-cost-sentinel`. This section is the design, so the reasoning is on
+record even though the pipeline isn't built.
+
+**Why not just build it with subscription-scoped Contributor (the "easy" version).**
+`infra/main.bicep` is `targetScope = 'subscription'` — it declares the resource
+group itself and then a module scoped into it. A subscription-scoped deployment is
+authorised at the subscription: the principal needs
+`Microsoft.Resources/deployments/*` **and** `Microsoft.Resources/subscriptions/resourceGroups/write`
+at subscription scope, i.e. effectively **Contributor on the whole subscription**.
+That's true *even now that `rg-offboarding-dev` already exists* — ARM still
+evaluates the RG resource in the template at sub scope on every run; an existing
+RG makes the write a no-op but doesn't lower the permission needed to evaluate it.
+
+Federating that identity to a **public** GitHub repo means a standing trust from
+GitHub's OIDC issuer to a principal that can create or modify **any resource group
+in the LVN subscription**. For a portfolio tool that one person deploys by hand
+with `azd provision`, that is the wrong trade: the blast radius (whole
+subscription) and the standing-ness (no human in the loop once `main` moves) both
+vastly exceed the value (skipping one `azd provision` command).
+
+**What the correctly-scoped version would need** (the bar to actually build this):
+
+1. **User-assigned managed identity, not an app registration.** `id-offboarding-dev`
+   in `rg-offboarding-dev`. A UAMI cannot have a client secret or a password
+   credential added to it — federated credentials are its *only* auth path — so
+   "no stored secret" stays structurally true. An app registration can always have
+   a secret bolted on later by anyone with access; a UAMI can't.
+2. **RG-bootstrap solved out of band.** Because a sub-scoped template needs
+   sub-scope rights, either (a) split provisioning: a one-time manual
+   `az group create rg-offboarding-dev` (already done, at CHECKPOINT 3) + refactor
+   `main.bicep`/`main.parameters.json` to `targetScope = 'resourceGroup'` so CI
+   only ever deploys *into* the existing RG with RG-scoped Contributor; or
+   (b) keep the sub-scoped template but accept sub-scope Contributor — rejected,
+   see above. Option (a) is the right shape but breaks the "match Project 1
+   conventions" rule that `main.bicep` is subscription-scoped, so it's a conscious
+   convention deviation, not a silent one.
+3. **RBAC: Contributor on `rg-offboarding-dev` only.** No User Access Administrator
+   — confirmed there are **zero `Microsoft.Authorization/roleAssignments`** in
+   `infra/*.bicep` (the only identity output is `automationMiPrincipalId`, a
+   passthrough). Diagnostic settings on the Automation Account are
+   `Microsoft.Insights/diagnosticSettings` writes, which Contributor covers.
+4. **Two federated credential subjects, minimum surface:**
+   `repo:realitylvn/m365-offboarding-automator:ref:refs/heads/main` and
+   `repo:realitylvn/m365-offboarding-automator:environment:production`.
+5. **Workflow guards:** trigger on `push: branches: [main]` + `workflow_dispatch`
+   **only** — never `pull_request` (a fork PR must not be able to invoke a
+   deploy). Bind the job to a GitHub `production` environment with a **required
+   reviewer**, so even a push to `main` pauses for a human approve before the
+   federated token is minted.
+6. **Repo secrets** (`gh secret set`): `AZURE_CLIENT_ID` (the UAMI's client id),
+   `AZURE_TENANT_ID` `<TENANT_ID>`,
+   `AZURE_SUBSCRIPTION_ID` `<SUBSCRIPTION_ID>`. None of these is
+   sensitive (client id and tenant id are not secrets; they're identifiers), but
+   the workflow reads them as secrets by convention.
+
+**When to revisit.** If this repo goes private, or if a second person needs to
+deploy, or if the Ops Dashboard project (project 5) ends up orchestrating
+cross-project deploys — any of those changes the calculus. Until then, manual
+`azd provision` from an authenticated developer session is the right amount of
+automation.
+
 ## Platform quirks hit along the way
 
 ### Naming & tagging convention — pre-flight correction (before any provision)
