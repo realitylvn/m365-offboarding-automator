@@ -454,6 +454,52 @@ belong in a public repo — a corporate security team would open an incident.
 is clean: no GUIDs, `/subscriptions/…` paths, or `*.onmicrosoft.com` outside the
 documented placeholders.
 
+## Cost analysis (final, 2026-09-02)
+
+Region East US 2, all resources in `rg-offboarding-dev`.
+
+| Resource | SKU / config | Billing model |
+|---|---|---|
+| Resource group | — | Free |
+| Automation Account `aa-offboarding-dev` | Free SKU, system-assigned MI | Job run-minutes only |
+| Runbook `Invoke-Offboarding` (PS 7.2) | `logVerbose` / `logProgress` off | Billed as job minutes |
+| 5× PowerShell 7.2 modules | imported from PS Gallery | Free (stored content) |
+| Log Analytics `log-offboarding-dev` | PerGB2018, 30-day retention, 1 GB/day cap | Ingestion + retention beyond 31 days |
+| Diagnostic setting `to-log-analytics` | JobLogs + JobStreams | Free (the pipe); ingestion lands in the workspace |
+| System-assigned Managed Identity | — | Free |
+
+### Effective cost: $0.00 / month
+
+Everything the workload generates fits inside Azure's standing free grants:
+
+- **Automation** — 500 job run-minutes free per subscription per month; overage is
+  $0.002/min. The runbook runs a handful of times a year at ~1–2 min per job, so
+  realistic usage is under 5 min/month. The Free SKU carries no per-account fee.
+- **Log Analytics** — first 5 GB/month ingestion is free per billing account, and
+  retention up to 31 days is free (the workspace is set to 30). A job writes
+  JobLogs plus a ~200-line Information stream, on the order of kilobytes per run.
+  Even heavy demo use stays well under 100 MB/month. No retention charge.
+- **Idle state** (project finished, Graph grant revoked, no jobs running) — a
+  workspace with no active sources ingests essentially nothing and the Free-SKU
+  Automation Account has no idle charge. Genuinely $0.
+
+### Shadow cost (list price, if the free grants did not exist)
+
+About $0.02/month (~$0.25/year): ~$0.007 Automation minutes plus ~$0.014 Log
+Analytics ingestion at ~$2.76/GB. Log ingestion would be the dominant line item,
+not compute.
+
+### Cost guardrail
+
+`workspaceCapping.dailyQuotaGb: 1` on the workspace is the ceiling. Worst case if
+something went runaway (for example `logVerbose` re-enabled inside a job loop):
+1 GB/day × ~$2.76 ≈ $83/month absolute cap. Nothing in the current design comes
+within three orders of magnitude of that; the cap exists so a misconfiguration
+cannot produce a surprise bill.
+
+List prices are East US 2, pay-as-you-go, early 2026 — confirm against the Azure
+Pricing Calculator for exact current rates.
+
 ## AZ-900 / AZ-104 domain mapping
 
 - **Identity & access management (AZ-104 ~30%)**:
