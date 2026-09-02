@@ -107,8 +107,9 @@ azd provision
 #    (interactive Graph consent on first run).
 pwsh ./scripts/create-test-users.ps1
 
-# 3. One-time, Global Admin session: grant the Automation Account's managed
-#    identity its three Graph application app-roles (admin-consent equivalent).
+# 3. Global Admin session: grant the Automation Account's managed identity its
+#    three Graph application app-roles (admin-consent equivalent). Idempotent —
+#    run it to arm the identity before a run, revoke after (see Operating posture).
 pwsh ./scripts/grant-managed-identity-graph-permissions.ps1 `
   -AutomationAccountName aa-offboarding-dev -ResourceGroupName rg-offboarding-dev
 
@@ -123,6 +124,17 @@ az automation runbook start `
 Local checks before a PR: `pwsh ./runbook/tests/Invoke-Pester.ps1` (unit +
 orchestration tests) and
 `Invoke-ScriptAnalyzer -Path runbook/Invoke-Offboarding.ps1 -Settings ./PSScriptAnalyzerSettings.psd1`.
+
+## Operating posture
+
+`rg-offboarding-dev` stays provisioned (Free SKU, $0/mo), but the managed
+identity's three Graph application permissions are **granted only while the tool
+is in active use and revoked when it's idle** — a runbook that runs a handful of
+times a year shouldn't hold standing, promptless read/write over every user and
+group membership in the tenant. Arming and revoking are each one idempotent
+script run. Same reasoning as the deliberately-deferred OIDC deploy pipeline: a
+privilege is held for a task, not "just in case." Details in
+[`REVIEW.md`](REVIEW.md).
 
 ## Sample output
 

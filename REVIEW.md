@@ -164,7 +164,8 @@ automation.
 | `az automation runbook start -g rg-offboarding-dev --automation-account-name aa-offboarding-dev --name Invoke-Offboarding --parameters TargetUpn=…` ×4 | Task 13 Step 6 (attempt #2) — the four acceptance jobs (test-1, test-2, missing UPN, test-1 re-run). All `Completed`; see *Stage 5*. |
 | `az automation job show -g … --automation-account-name … --name <job> --query status` | Polled each job to a terminal state (`New`→`Activating`→`Running`→`Completed`, ~1–2 min each). |
 | `az rest --method get ".../jobs/<job>/streams?api-version=2023-11-01&$filter=properties/streamType eq 'Output'"` | Pulled each job's JSON summary from the Output stream (the `az automation job get-output` command doesn't exist; `job show` carries no output). Sanitised into `docs/sample-run.json`. |
-| `az rest --method patch https://graph.microsoft.com/v1.0/users/<PRINCIPAL_ID>  -b '{"accountEnabled":true}'` | Post-test — re-enabled `offboard-test-1`. Further restore writes (re-license, re-group `offboard-test-1`/`-2`) were intermittently blocked by the auto-mode classifier — pending. |
+| `az rest --method patch https://graph.microsoft.com/v1.0/users/<PRINCIPAL_ID>  -b '{"accountEnabled":true}'` | Post-test — re-enabled `offboard-test-1`. Then re-licensed + re-grouped `offboard-test-1`/`-2` (`POST /assignLicense`, `POST /groups/{id}/members/$ref`); all 3 test users back at parity. |
+| `az rest --method delete .../servicePrincipals/<PRINCIPAL_ID>/appRoleAssignments/{id}` ×3 | Stage 6 — revoked all three Graph app-role assignments from the MI SP now the build is done. `GET .../appRoleAssignments` → `[]`. Re-arm with the grant script before a demo. |
 
 ## Checkpoint execution log
 
@@ -380,6 +381,42 @@ exist and `... job show --query output` is empty; the job's Output-stream
 content is only reachable via ARM REST —
 `GET .../jobs/{id}/streams?api-version=2023-11-01&$filter=properties/streamType eq 'Output'`,
 then read `value[].properties.summary`.
+
+### Stage 6 — operating posture: revoke the standing grant when idle (2026-09-02)
+
+With the acceptance test done and the project moving to a "finished, occasionally
+demoed" state, the three Microsoft Graph **application** app-role assignments on
+the Automation Account's managed identity SP
+(`<PRINCIPAL_ID>`) were **revoked**:
+
+```
+az rest --method delete \
+  --url "https://graph.microsoft.com/v1.0/servicePrincipals/<PRINCIPAL_ID>/appRoleAssignments/{id}"
+```
+
+for `User.ReadWrite.All`, `GroupMember.ReadWrite.All`, and `Organization.Read.All`
+— verified `GET .../appRoleAssignments` returns `[]`.
+
+**Why.** `User.ReadWrite.All` + `GroupMember.ReadWrite.All` as *application*
+permissions are standing, promptless read/write over every user and every group
+membership in the tenant. Leaving that assigned to a runbook that runs a few
+times a year is exactly the kind of dormant privilege a least-privilege posture
+is supposed to catch. The initial scoping (a hard ceiling of three) is only half
+the discipline; the other half is not leaving them switched on when nothing is
+calling them.
+
+**Re-arming for a demo.** `scripts/grant-managed-identity-graph-permissions.ps1`
+is idempotent and re-grants all three in one run (Global Administrator session,
+~10–20 min propagation before `Connect-MgGraph -Identity` sees them). So the
+operating cycle is: re-arm → demo → revoke. `rg-offboarding-dev` itself
+(Automation Account, Log Analytics, runbook, diagnostic setting) stays
+provisioned — it costs nothing on the Free SKU and re-provisioning is a single
+`azd provision`.
+
+**AZ-104 framing.** This is the same instinct as the CHECKPOINT 4 decision (don't
+stand up a subscription-scoped, public-repo-federated deploy identity for a tool
+one person hand-deploys): privilege is granted for a task and removed when the
+task isn't running, not held "just in case."
 
 ## AZ-900 / AZ-104 domain mapping
 
