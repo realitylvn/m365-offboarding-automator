@@ -1,0 +1,10 @@
+# azd local environment state
+.azure
+
+# never commit a private key
+*.pfx
+*.pem
+
+# Pester output
+**/testResults.xml
+**/TestResults.xml
