@@ -89,6 +89,9 @@ command as it runs, so the reasoning doesn't get reconstructed from memory after
 | `git checkout -b ci-setup` / `gh pr create` / `gh pr checks 1 --watch` / `gh pr merge 1 --squash --delete-branch` | Task 14 — added `.github/workflows/ci.yml` (jobs `lint-ps`, `test-ps`, `bicep`) on branch `ci-setup`, opened PR #1, watched all three checks pass on GitHub-hosted runners, squash-merged to `main` (`566d98e`). First CI wiring. The `lint-ps` job loops `Invoke-ScriptAnalyzer -Path` one file at a time — passing the target array directly throws `Cannot convert System.Object[] to String`. `pull_request` + `push: branches-ignore:[main]` both fire on a PR branch, so a PR gets two identical runs (accepted, not worth a guard). |
 | `Install-Module Microsoft.Graph.Authentication -RequiredVersion 2.32.0 -Scope CurrentUser` | CHECKPOINT 1 pre-req — the local box had every `Microsoft.Graph.*` sub-module at 2.32.0 *except* `Microsoft.Graph.Authentication` (the core module that supplies `Connect-MgGraph`), so the setup script failed with "term 'Connect-MgGraph' is not recognized" until it was installed. |
 | `pwsh -File scripts/create-test-users.ps1` | CHECKPOINT 1 — see *Checkpoint execution log → Stage 1* below. Interactive delegated sign-in (`User.ReadWrite.All`, `Group.ReadWrite.All`, `Organization.Read.All`). Partial success: 3 users + FLOW_FREE licenses + the static group created; the **dynamic group failed** (`400 NoLicenseForOperation` — dynamic membership needs Entra ID P1, which this tenant does not have). |
+| `az deployment sub what-if --location eastus2 --template-file infra/main.bicep --parameters environmentName=offboarding-dev location=eastus2` | CHECKPOINT 3 pre-flight — 10 resources to create, names/tags as expected. |
+| `azd provision --no-prompt` | CHECKPOINT 3 — first real provision. Deployment `offboarding-dev-1788325232` Succeeded: RG + Log Analytics + Automation Account + 5 Graph PS7.2 modules + published runbook + diagnostic setting. postprovision hook published the runbook. See *Stage 3* below. `azd`'s "reserved word MICROSOFT" pre-validation warning on the module resources is a false positive — deployment succeeded. |
+| `az rest --method get .../powerShell72Modules?api-version=2023-11-01` / `.../runbooks/Invoke-Offboarding/content` / `.../diagnosticSettings` | CHECKPOINT 3 verification — the `az automation` CLI group is experimental and thin (`get-content` doesn't exist, `az monitor diagnostic-settings list` rejects the nested Automation id), so ARM REST via `az rest` was used to confirm module import state, published runbook content, and diagnostic routing. |
 
 ## Checkpoint execution log
 
@@ -130,6 +133,47 @@ gates Conditional Access, PIM, and group-based licensing. Worth stating in the
 identity-governance section: "least privilege" and "premium-gated" are different
 axes, and a design that must run in a free/E-plan tenant can't assume rule-based
 groups exist.
+
+### Stage 3 — first `azd provision` (CHECKPOINT 3, 2026-09-02)
+
+Ran `azd provision --no-prompt` against `LVN Subscription`
+(`<SUBSCRIPTION_ID>`) / `eastus2`. Deployment
+`offboarding-dev-1788325232` — **Succeeded, all 10 resources**.
+
+| Output | Value |
+|---|---|
+| `AZURE_RESOURCE_GROUP` | `rg-offboarding-dev` |
+| `AUTOMATION_ACCOUNT_NAME` | `aa-offboarding-dev` (Free SKU, SystemAssigned MI) |
+| `AUTOMATION_MI_PRINCIPAL_ID` | `<PRINCIPAL_ID>` |
+| MI service principal | appId `<CLIENT_ID>`, displayName `aa-offboarding-dev` |
+| `RUNBOOK_NAME` | `Invoke-Offboarding` — state **Published** |
+| `LOG_ANALYTICS_WORKSPACE_NAME` | `log-offboarding-dev` (30-day retention, 1 GB/day cap) |
+
+- **5 Graph PS7.2 modules** — `Microsoft.Graph.Authentication`, `.Users`,
+  `.Users.Actions`, `.Groups`, `.Identity.DirectoryManagement` — all
+  `provisioningState: Succeeded`, v2.39.0, account-scoped (`isGlobal: false`).
+  Imports finished within the provision window (no lingering "Importing" state).
+- **postprovision hook ran** — `scripts/publish-runbook.ps1` pushed
+  `runbook/Invoke-Offboarding.ps1` and published it. `azd` does not echo hook
+  stdout when `interactive: false`, but the runbook's published content matches the
+  local file (8761 vs 8443 bytes — CRLF vs LF only) and `state` is `Published`.
+- **Diagnostic setting** `to-log-analytics` — `JobLogs` + `JobStreams` → the
+  workspace. Confirmed via `az rest` (the `az monitor diagnostic-settings` CLI
+  choked on the nested Automation resource id).
+
+**azd pre-validation false positive.** `azd` warned *"Resource
+'…/Microsoft.Graph.Authentication' contains the reserved word 'MICROSOFT' … The
+deployment will fail"* for all five module resources. It did **not** fail — the
+PS-module resource name legitimately *is* the module name, and ARM accepts it. The
+warning is `azd`'s client-side name linter being overzealous about the
+`reserved-resource-name` rule; safe to ignore for `powerShell72Modules` children.
+
+**Empty-runbook create worked.** The Bicep `runbooks` resource carries no
+`draft`/`draftContentLink`. ARM created it fine (state `New` until the hook
+published it) — the plan's earlier worry about needing a single-space placeholder
+didn't materialise on API version `2023-11-01`.
+
+Next: CHECKPOINT 2 — grant the MI (`<PRINCIPAL_ID>`) the three Graph app roles.
 
 ## AZ-900 / AZ-104 domain mapping
 
