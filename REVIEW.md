@@ -383,14 +383,36 @@ then read `value[].properties.summary`.
 
 ## AZ-900 / AZ-104 domain mapping
 
-- **Identity & access management**: system-assigned Managed Identity as a workload identity;
-  Graph *application* permissions granted by app-role assignment (the admin-consent
-  equivalent) vs. delegated consent; `revokeSignInSessions` and `accountEnabled` as account
-  lifecycle operations. Core AZ-104 identity content.
-- **Governance**: least-privilege Graph scoping (a hard three-permission ceiling), and the
-  CAF naming + tagging convention applied before provisioning — both AZ-900 and AZ-104
-  "design governance / manage subscriptions" material.
-- **Automation & compute choice**: Automation Account vs. Functions trade-off for a
-  no-trigger, on-demand administrative workload.
-- **Monitoring**: Automation Account diagnostic settings routing `JobLogs` / `JobStreams` to
-  a capped Log Analytics workspace — AZ-104 Azure Monitor coverage.
+- **Identity & access management (AZ-104 ~30%)**:
+  - *Workload identity* — system-assigned Managed Identity on the Automation Account; the
+    runbook authenticates with `Connect-MgGraph -Identity`, no credential to store or rotate.
+  - *Application vs. delegated permissions* — the MI's service principal is granted Graph
+    *application* app-roles by direct assignment (`New-MgServicePrincipalAppRoleAssignment`),
+    which is the admin-consent equivalent and needs Global Administrator / Privileged Role
+    Administrator (Application Administrator can't consent to `User.ReadWrite.All` /
+    `GroupMember.ReadWrite.All` — they're on the privileged-permission list). Contrast with
+    the *delegated* consent the two setup scripts use when a human runs them interactively.
+  - *Account lifecycle* — `accountEnabled = false`, `revokeSignInSessions` (refresh-token
+    invalidation), licence de-assignment, group de-membership: the four operations that make
+    up a real leaver process.
+  - *Premium-gated features* — dynamic (rule-based) groups need Entra ID P1; the tenant has
+    none, so the demo uses an assigned group and the runbook's skip-dynamic path is unit-
+    tested rather than shown live (see *Stage 1*).
+- **Governance & least privilege (AZ-900 + AZ-104)**:
+  - A hard **three-permission ceiling** on the MI (`User.ReadWrite.All`,
+    `GroupMember.ReadWrite.All`, `Organization.Read.All`), enforced as its own checkpoint —
+    the single most privileged operation in the project.
+  - CAF **naming + tagging** convention (`rg-/aa-/log-offboarding-dev`, `portfolio` / `project`
+    / `environment` tags) applied *before* the first provision, not retrofitted.
+  - CHECKPOINT 4: chose **not** to stand up a subscription-scoped, public-repo-federated
+    deploy identity — a least-privilege / blast-radius call, documented rather than built.
+- **Compute & automation (AZ-900 + AZ-104)**: Automation Account (Free SKU, PowerShell 7.2
+  runbook) vs. Functions — chosen for a no-HTTP, no-schedule, parameter-triggered admin
+  workload where job input/output/streams are captured for free. Runbook content published
+  out-of-band via an `azd` `postprovision` hook, never embedded in Bicep.
+- **Monitoring (AZ-104 Azure Monitor)**: Automation Account **diagnostic settings** route
+  `JobLogs` + `JobStreams` to a 1 GB/day-capped Log Analytics workspace, so every run's
+  step-by-step Information-stream log is queryable after the job object ages out.
+- **IaC & deployment (AZ-104)**: subscription-scoped Bicep entrypoint (`main.bicep` creates
+  the RG + one `resources` module), `azd provision`, and the reason a sub-scoped template
+  forces sub-scope deploy rights even for an existing RG (see the deferred-OIDC design).

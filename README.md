@@ -1,60 +1,152 @@
-# [Project Name]
+# M365 Identity Offboarding Automator
 
-> [One-sentence business pitch — the exact line from the portfolio plan, e.g. "Watches an Azure subscription's spend and flags anomalies in plain English before they become a surprise bill."]
+> Turns a multi-step, error-prone employee offboarding checklist into one auditable, logged automation run.
 
-![Azure](https://img.shields.io/badge/Azure-Functions-0078D4?logo=microsoftazure)
+[![CI](https://github.com/realitylvn/m365-offboarding-automator/actions/workflows/ci.yml/badge.svg)](https://github.com/realitylvn/m365-offboarding-automator/actions/workflows/ci.yml)
+![Azure](https://img.shields.io/badge/Azure-Automation-0078D4?logo=microsoftazure&logoColor=white)
 ![Bicep](https://img.shields.io/badge/IaC-Bicep-0078D4)
-![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)
-![Cost](https://img.shields.io/badge/monthly_cost-%240–%240.05-brightgreen)
+![Cost](https://img.shields.io/badge/monthly_cost-%240-brightgreen)
 
 ## The problem
 
-[2–3 sentences, plain English, no jargon. Who has this problem and why it's annoying/risky. This is the section a non-technical hiring manager reads.]
+When someone leaves, their access doesn't. The account stays enabled, the sign-in
+sessions stay live, the licences keep billing, and the group memberships keep
+granting whatever they granted. The list of things to undo is well known and
+almost always done by hand — a person working through a checklist in the admin
+portal, tab by tab, hoping they didn't miss one. Miss the session revocation and
+a departed employee keeps working access for hours. Miss a licence and it bills
+until someone notices. Miss a group and it's a standing hole nobody audits.
+
+This is the smallest useful version of the fix: one runbook that takes a user's
+UPN, does the four highest-value steps in a fixed order, and writes down exactly
+what it did and what it couldn't.
 
 ## What it does
 
-[3–5 bullets, concrete. "Runs on a timer every X. Calls Y API. Flags Z when threshold is exceeded. Posts a summary to [where]."]
+- Runs **on demand** — an operator starts a job with one parameter, the target
+  user's UPN. No schedule, no state between runs.
+- Authenticates to Microsoft Graph as the Automation Account's **system-assigned
+  Managed Identity** (`Connect-MgGraph -Identity`) — no secret anywhere.
+- Runs four **independently-wrapped, partial-completion-tolerant** steps:
+  1. **Disable the account** (`accountEnabled = false`) — no-op if already disabled.
+  2. **Revoke all sign-in sessions** — invalidates every refresh token.
+  3. **Remove all direct licence assignments** in a single `Set-MgUserLicense` call.
+  4. **Remove all manually-assigned group memberships** — dynamic (rule-based)
+     groups are detected and skipped with a logged warning, never attempted.
+- A failure in one step is caught, recorded as `failed` for that step, and the
+  run **continues** — no step aborts the others.
+- Job output is a **JSON summary**: `succeeded` / `failed` / `skipped` / `noop`
+  counts plus a per-step breakdown. Per-step `[timestamp] LEVEL message` logs go
+  to the Information stream, and Automation diagnostic settings route `JobLogs` +
+  `JobStreams` to a Log Analytics workspace.
 
 ## Architecture
 
-[Diagram — even a simple boxes-and-arrows PNG/SVG exported from draw.io or excalidraw works better than a wall of text. Embed it: `![architecture](docs/architecture.png)`]
+See [`docs/architecture.md`](docs/architecture.md) for the diagram and the full
+write-up. In short:
 
-**Services used:** [list — Functions, Bicep, Monitor, etc.]
-**Auth:** Managed Identity — no stored secrets, no client credentials in code or config.
+```mermaid
+flowchart LR
+  op["Operator<br/>(az automation runbook start)"] --> rb
+  subgraph AA["Automation Account (LVN subscription)"]
+    rb["Invoke-Offboarding runbook"]
+    mi["System-assigned Managed Identity"]
+  end
+  rb -->|"Connect-MgGraph -Identity"| mi
+  mi -->|"3 Graph app roles"| graph[("Microsoft Graph")]
+  graph --> tenant["contoso.onmicrosoft.com tenant"]
+  rb -->|"JobLogs / JobStreams"| law[("Log Analytics")]
+```
+
+**Services used:** Azure Automation (PowerShell 7.2 runtime), Microsoft Graph
+PowerShell SDK, Log Analytics, Bicep, Azure Developer CLI (`azd`), GitHub Actions.
+
+**Auth:** the Automation Account's system-assigned Managed Identity holds three
+Graph application permissions (`User.ReadWrite.All`, `GroupMember.ReadWrite.All`,
+`Organization.Read.All`) by direct app-role assignment — no app registration, no
+certificate, no secret anywhere.
 
 ## Environment
 
-[Choose the version that matches this project:]
-
-*Self-use projects (Cost Sentinel / Drift Detector / NSG Scanner):* Runs against a live Azure subscription I co-administer — not a disposable sandbox. I have a direct interest in catching cost anomalies, drift, and exposed rules here since it's infrastructure I'm actually responsible for.
-
-*Offboarding Automator:* Built and tested against a free Microsoft 365 Developer Program tenant with synthetic test users — the tenant and API calls are real (Graph API, real permission changes), the employee scenario is simulated since it's a purpose-built dev environment rather than a live business with headcount turnover. [Optional, if true: "I've handled anomaly detection and alerting in a production capacity in my sysadmin work — this project formalizes that experience into a repeatable, auditable automation."]
+Built and tested against the **real contoso.onmicrosoft.com Microsoft 365 tenant** with
+synthetic test users (`offboard-test-1..3@contoso.com`) created by
+`scripts/create-test-users.ps1`. The tenant, the Graph calls, and the permission
+changes are all real — the accounts are purpose-built stand-ins, never real
+personnel. Every user, group, and SKU id in this repo's fixtures and
+[`docs/sample-run.json`](docs/sample-run.json) is either synthetic or replaced
+with a stable placeholder.
 
 ## What this doesn't do
 
-[Explicit, honest scope boundary — the anti-black-box section. e.g. "This flags anomalies against a static threshold; it doesn't yet learn seasonal spend patterns. In a production deployment, [X] would sit behind Entra ID SSO for the operator console — omitted here so the repo stays publicly browsable."]
+Deliberate scope boundaries, not oversights:
+
+- **No mailbox-to-shared-mailbox conversion** — a common real offboarding step,
+  out of scope here (needs Exchange Online, a different permission surface).
+- **No dynamic-group removal** — rule-based memberships are skipped with a
+  warning; changing them means editing the rule, not the user.
+- **No group-based (inherited) licence removal** — only direct assignments are
+  removed; an inherited licence surfaces as a `failed` step and the run
+  continues.
+- **No undo** — there is no reversal run. Re-enabling is manual.
+- **No scheduling and no HR/ticketing integration** — the trigger is a human
+  starting a job with a UPN.
+- **No OIDC deploy pipeline** — CI runs lint + tests + `bicep build` on every PR,
+  but provisioning is done by hand with `azd`. The reasoning (and what a
+  correctly-scoped version would need) is in [`REVIEW.md`](REVIEW.md).
 
 ## Running it yourself
 
 ```bash
-az login
-az deployment group create --resource-group <rg> --template-file infra/main.bicep
+# 1. Provision the Automation Account, Log Analytics workspace, Graph modules,
+#    and the runbook resource. The postprovision hook publishes the runbook.
+azd auth login
+azd env new offboarding-dev            # sets AZURE_ENV_NAME / AZURE_LOCATION
+azd provision
+
+# 2. One-time: create synthetic test users + the demo group in your tenant
+#    (interactive Graph consent on first run).
+pwsh ./scripts/create-test-users.ps1
+
+# 3. One-time, Global Admin session: grant the Automation Account's managed
+#    identity its three Graph application app-roles (admin-consent equivalent).
+pwsh ./scripts/grant-managed-identity-graph-permissions.ps1 `
+  -AutomationAccountName aa-offboarding-dev -ResourceGroupName rg-offboarding-dev
+
+# 4. Run an offboarding job.
+az automation runbook start `
+  --resource-group rg-offboarding-dev `
+  --automation-account-name aa-offboarding-dev `
+  --name Invoke-Offboarding `
+  --parameters TargetUpn=offboard-test-1@contoso.com
 ```
 
-[Any config/parameters needed. Keep this section honest about what's a placeholder vs. what actually works out of the box.]
+Local checks before a PR: `pwsh ./runbook/tests/Invoke-Pester.ps1` (unit +
+orchestration tests) and
+`Invoke-ScriptAnalyzer -Path runbook/Invoke-Offboarding.ps1 -Settings ./PSScriptAnalyzerSettings.psd1`.
 
 ## Sample output
 
-[Screenshot or a sanitized JSON/log snippet showing the tool actually working — this is the single most persuasive thing in the whole README, don't skip it. For Cost Sentinel specifically: report anomalies as relative deltas or percentages ("34% above 7-day average"), not dollar figures — keeps the output meaningful without disclosing actual spend.]
+[`docs/sample-run.json`](docs/sample-run.json) — real job output over the
+synthetic accounts, GUIDs replaced with placeholders. Four runs: two full
+offboards, a missing-UPN clean failure (`resolve-user` failed, zero step
+attempts, `completed_with_failures`), and an idempotent re-run of an
+already-offboarded user (`disable` → `noop`, `remove-licenses` → `noop`,
+`remove-group-memberships` → `skipped`).
 
 ## Cost
 
-Built entirely on Azure's free-tier grants (Functions Consumption: 1M executions/month free). Estimated cost if left running indefinitely: **under $0.05/month**. A budget alert is provisioned in `infra/` as a safety net regardless.
+The Automation Account runs on the **Free** SKU (500 job-minutes/month included;
+each offboarding job is seconds). The Log Analytics workspace is capped at 1
+GB/day and holds only job logs. **Effective monthly cost: $0.**
 
 ## Built with
 
-Designed and reviewed with Claude (architecture, spec-tightening, README), implemented with Claude Code / Azure CLI in VS Code.
+Designed and reviewed with Claude (architecture, spec-tightening, this README),
+implemented with Claude Code and the Azure CLI in VS Code. [`REVIEW.md`](REVIEW.md)
+is the running build log — every decision, every `az`/`azd`/Graph command, the
+platform quirks, and the AZ-900 / AZ-104 domain mapping.
 
 ---
 
-*Part of a 4-project Azure/M365 portfolio series: [links to the other three once live]*
+_Part of a portfolio of Azure / M365 automation projects, alongside
+[Azure Cost Sentinel](https://github.com/realitylvn/azure-cost-sentinel)._
