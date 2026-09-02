@@ -254,8 +254,13 @@ returns a token carrying **exactly** `User.ReadWrite.All`, `GroupMember.ReadWrit
 - Pester 35/35 (one test added — `Write-RunLog` must not touch the pipeline),
   PSScriptAnalyzer + `bicep build`/`lint` clean.
 
-Re-provisioned (`logVerbose` change) and re-published the runbook content;
-re-ran `scripts/create-test-users.ps1` to restore `offboard-test-1`.
+Re-provisioned — `azd provision` deployment `offboarding-dev-1788328582`
+Succeeded (43s; `logVerbose`/`logProgress` now `false` on the runbook) — and
+re-published the runbook content via `scripts/publish-runbook.ps1`; the published
+copy carries the `Write-Information` / explicit-`Import-Module` fixes (212 lines,
+matches local). `offboard-test-1` restored to enabled + FLOW_FREE + static-group
+membership via targeted Graph calls (the setup script's existence guards would
+have skipped the re-enable). All three test users are back at parity.
 
 **Next (deferred to next session — usage cap): re-run the end-to-end test** —
 test-1 full offboard, test-2 full offboard, a missing UPN (clean fail), test-1
