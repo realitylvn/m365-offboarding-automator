@@ -183,5 +183,12 @@ platform quirks, and the AZ-900 / AZ-104 domain mapping.
 
 ---
 
-_Part of a portfolio of Azure / M365 automation projects, alongside
-[Azure Cost Sentinel](https://github.com/realitylvn/azure-cost-sentinel)._
+## Portfolio series
+
+A five-project Azure/M365 portfolio, built in order:
+
+1. [azure-cost-sentinel](https://github.com/realitylvn/azure-cost-sentinel) — flags anomalous subscription spend in plain English
+2. [m365-offboarding-automator](https://github.com/realitylvn/m365-offboarding-automator) — runs the Microsoft 365 leaver checklist via the Graph API *(you are here)*
+3. [azure-drift-detector](https://github.com/realitylvn/azure-drift-detector) — alerts when live resource config drifts from a reference
+4. [azure-nsg-scanner](https://github.com/realitylvn/azure-nsg-scanner) — finds NSG rules open to the internet, subscription-wide
+5. [azure-ops-command-center](https://github.com/realitylvn/azure-ops-command-center) — one live status view over all four
