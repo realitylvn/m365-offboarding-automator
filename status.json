@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "project": "m365-offboarding-automator",
+  "cadence": "on-demand",
+  "generated_at": "2026-09-03T10:51:11Z",
+  "last_run_at": "2026-09-02T15:27:42Z",
+  "status": "ok",
+  "headline": "Last offboard: offboard-test-1@contoso.com - completed",
+  "detail": {
+    "target": "offboard-test-1@contoso.com",
+    "overall": "completed",
+    "steps": {
+      "succeeded": 1,
+      "failed": 0,
+      "skipped": 1,
+      "noop": 2
+    }
+  },
+  "repo_url": "https://github.com/realitylvn/m365-offboarding-automator"
+}

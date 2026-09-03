@@ -166,6 +166,9 @@ automation.
 | `az rest --method get ".../jobs/<job>/streams?api-version=2023-11-01&$filter=properties/streamType eq 'Output'"` | Pulled each job's JSON summary from the Output stream (the `az automation job get-output` command doesn't exist; `job show` carries no output). Sanitised into `docs/sample-run.json`. |
 | `az rest --method patch https://graph.microsoft.com/v1.0/users/<PRINCIPAL_ID>  -b '{"accountEnabled":true}'` | Post-test — re-enabled `offboard-test-1`. Then re-licensed + re-grouped `offboard-test-1`/`-2` (`POST /assignLicense`, `POST /groups/{id}/members/$ref`); all 3 test users back at parity. |
 | `az rest --method delete .../servicePrincipals/<PRINCIPAL_ID>/appRoleAssignments/{id}` ×3 | Stage 6 — revoked all three Graph app-role assignments from the MI SP now the build is done. `GET .../appRoleAssignments` → `[]`. Re-arm with the grant script before a demo. |
+| `pwsh scripts/Build-StatusJson.ps1 -RunSummaryPath docs/sample-run.json` | Status-contract rollout — generated the seed `status.json` at the repo root from run #4 of the sample. `status: ok`, `cadence: on-demand`. |
+| `pwsh runbook/tests/Invoke-Pester.ps1` | Status-contract rollout — 38/38 pass (was 35) with `Build-StatusJson.Tests.ps1` added: `ok` / `error` mapping + `runs`-array last-run handling. |
+| `Invoke-ScriptAnalyzer -Path scripts/Build-StatusJson.ps1 -Settings ./PSScriptAnalyzerSettings.psd1` | Status-contract rollout — 0 findings (`Write-Host` allowed via the same file-scoped `[SuppressMessageAttribute('PSAvoidUsingWriteHost')]` the other operator scripts use). |
 
 ## Checkpoint execution log
 
@@ -499,6 +502,38 @@ cannot produce a surprise bill.
 
 List prices are East US 2, pay-as-you-go, early 2026 — confirm against the Azure
 Pricing Calculator for exact current rates.
+
+## Status-contract rollout (2026-09-03)
+
+The Ops Command Center dashboard (portfolio project 5) reads a `status.json` from
+each of the four projects, to one shared schema
+(`azure-ops-command-center/docs/status-contract.md`). Offboarding has no storage
+account — the `$0` design — so its snapshot is a **committed file** at the repo
+root, `cadence: on-demand`, fetched by the dashboard from
+`raw.githubusercontent.com` (which serves `Access-Control-Allow-Origin: *`, so no
+CORS work and no infra change).
+
+- `scripts/Build-StatusJson.ps1` maps a run summary — the job Output stream, the
+  same source as `docs/sample-run.json` — to the contract shape. `OverallStatus:
+  completed` → `status: ok`; `completed_with_failures` → `status: error`.
+  Offboarding has **no `finding` state**: it is an action tool, not a detector.
+  Timestamps are normalised to second-precision UTC with a `Z` suffix to match
+  the cross-project contract.
+- Pester coverage in `runbook/tests/Build-StatusJson.Tests.ps1`: the `ok` and
+  `error` mappings and the `runs`-array (last-run) handling. Timestamp fields are
+  asserted against the raw file text because `ConvertFrom-Json` silently
+  re-parses ISO strings into `[datetime]`.
+- The seed `status.json` was generated from `docs/sample-run.json` run #4 (the
+  idempotent re-run of `offboard-test-1`: `succeeded 1, skipped 1, noop 2`,
+  `OverallStatus: completed` → `ok`).
+- The documented run sequence gains one step (README step 5): regenerate and
+  commit `status.json` after a job run. No new Azure infra, no new RBAC, no
+  storage account — the `$0` design is intact.
+
+**AZ-900 / AZ-104 mapping:** cross-service data contract — one schema defined
+once and shipped per service before the consumer depends on it; `schema_version`
+for forward compatibility. The honest-cost choice: a committed file over standing
+up a storage account purely to serve ~400 bytes of JSON a few times a year.
 
 ## AZ-900 / AZ-104 domain mapping
 
